@@ -63,6 +63,14 @@
 - **Infrastructure teardown failed** → the Pulumi stack may be unreachable;
   confirm the backend (`PULUMI_BACKEND_URL` or `pulumi login --local`) and
   re-run. The host and workstation stages still run.
+- **`Pulumi stack ... was created against Host`** → `config.yaml` targets a
+  different Host than the stack. Teardown stops and skips the host and
+  workstation stages, because cleanup there would delete unrelated resources.
+  Put the original `hostSsh.host` back and re-run
+  ([`../state.md`](../state.md#backup-and-restore)).
+- **`recorded on backend ... but the active backend is`** → select the backend
+  that recorded the stack, then re-run. Do not tear down against a different
+  backend.
 - **A domain or volume remains** → re-run `virtlab down`; if it persists,
   inspect the stack state before touching `virsh`.
 - **Laptop DNS still resolves the cluster** → the workstation stage failed;

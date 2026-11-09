@@ -129,6 +129,30 @@ func loadConfig(configPath string) (*config.Config, error) {
 	return cfg, nil
 }
 
+// ensureStackCoversHostResources refuses to provision when the Host already
+// holds live resources for the cluster but the Pulumi stack that tracks them is
+// missing. It is a no-op for a fresh lab and for a resumed run with state.
+func ensureStackCoversHostResources(stackExists, hostHasResources bool, clusterName, host string) error {
+	if stackExists || !hostHasResources {
+		return nil
+	}
+
+	backend := infrastructure.ActiveBackendURL()
+	if backend == "" {
+		backend = "(unknown)"
+	}
+
+	return fmt.Errorf(`phase 2: host '%s' has live resources for cluster '%s', but no Pulumi state for that cluster exists in backend '%s'.
+
+virtlab has no record of those resources, so 'virtlab up' would create duplicates.
+Choose one recovery:
+  - Discard the leftovers: run 'virtlab down' with the original config, then remove any remaining libvirt pool or network named '%s' and re-run 'virtlab up';
+  - Keep the resources: restore the Pulumi state backup for cluster '%s' and re-run 'virtlab up'.
+
+See docs/state.md (Backup and restore) for the state backup procedure`,
+		host, clusterName, backend, clusterName, clusterName)
+}
+
 func runUp(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("up", flag.ExitOnError)
 	configPath := fs.String("config", "config.yaml", "Path to config file")
@@ -196,13 +220,19 @@ func runUp(ctx context.Context, args []string) error {
 		return err
 	}
 
+	// Inspect existing host resources once. The result feeds the capacity
+	// idempotency credit and the Pulumi state guard in Phase 2.
+	existingCluster, existingErr := h.InspectExistingCluster(cfg.ClusterName)
+	if existingErr != nil {
+		fmt.Printf("Warning: failed to inspect existing cluster resources on host (%v); proceeding anyway\n", existingErr)
+	}
+
 	// Validate Capacity against Host (with Idempotency Credit for existing lab)
 	fmt.Printf("[Host] Checking remote hypervisor capacity...\n")
 	cap, err := h.InspectCapacity()
 	if err != nil {
 		fmt.Printf("Warning: failed to query host capacity (%v); proceeding anyway\n", err)
 	} else {
-		existingCluster, _ := h.InspectExistingCluster(cfg.ClusterName)
 		if existingCluster.Exists {
 			fmt.Printf("✔ Existing cluster '%s' detected on host (reclaiming %d MiB RAM, %d GiB Disk for capacity check)\n",
 				cfg.ClusterName, existingCluster.AllocatedRAMMiB, existingCluster.AllocatedDiskGiB)
@@ -283,6 +313,21 @@ func runUp(ctx context.Context, args []string) error {
 	fmt.Printf("✔ Network bridge resolved to '%s'\n", bridgeName)
 
 	infra := infrastructure.New(cfg, bridgeName)
+
+	// The Pulumi stack is the only record of the resources virtlab created.
+	// If the Host already holds a lab for this name but the stack is missing
+	// (for example, lost local state or a different backend), Up would create
+	// duplicate resources.
+	stackExists, err := infra.StackHasState(ctx)
+	if err != nil {
+		return fmt.Errorf("phase 2: inspect Pulumi stack state: %w", err)
+	}
+	if existingErr == nil {
+		if err := ensureStackCoversHostResources(stackExists, existingCluster.Exists, cfg.ClusterName, h.Client.Host); err != nil {
+			return err
+		}
+	}
+
 	if err := infra.Provision(ctx); err != nil {
 		return fmt.Errorf("phase 2 failed: %w", err)
 	}
@@ -431,6 +476,13 @@ func runTeardownStages(ctx context.Context, cfg *config.Config) error {
 	if err := infraTeardownFn(ctx, cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "Error during infrastructure teardown: %v\n", err)
 		errs = append(errs, fmt.Errorf("infrastructure teardown: %w", err))
+
+		// A Host or backend mismatch means the configured Host is not the one
+		// that owns the lab. Never run host or workstation cleanup there.
+		if errors.Is(err, infrastructure.ErrStackIdentityMismatch) {
+			fmt.Fprintln(os.Stderr, "\n✖ Teardown stopped: the Pulumi stack does not belong to the configured host/backend. Host and workstation cleanup were skipped.")
+			return errors.Join(errs...)
+		}
 	}
 
 	// 2. Clean up Host-side artifacts (storage dir, DNS bridge, lingering libvirt resources)

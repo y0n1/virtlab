@@ -102,6 +102,12 @@ For the override rules and validation, see
 project is always `virtlab`. The stack is named after `clusterName`. By default
 the state uses the local file backend under the operator's home directory.
 
+The stack also records the Host it was applied to (`libvirt:uri`) and the
+backend that owns it (`virtlab:backend`). `virtlab up` and `virtlab down` stop
+on a mismatch instead of rewriting the record. This keeps state bound to the
+Host that holds the resources. The state stores and backup procedure are in
+[`state.md`](state.md#backup-and-restore).
+
 | Resource | Package | Key values |
 |---|---|---|
 | Lab Pool | `internal/infrastructure` (`storagepool.go`) | pool `<cluster>`, type `dir`, path `/home/libvirt/<cluster>/pool`, autostart and build enabled |
@@ -159,7 +165,7 @@ install it.
 
 | Stage | Actions |
 |---|---|
-| Preflight | Load and validate `config.yaml`; verify user tools and install managed tools; resolve the pull secret; check Workstation state and Host connectivity; reject a co-existing lab; reject an immutable platform change; check Host capacity; resolve the CIDR, gateway, and VIPs |
+| Preflight | Load and validate `config.yaml`; verify user tools and install managed tools; resolve the pull secret; check Workstation state and Host connectivity; reject a co-existing lab; reject an immutable platform change; check Host capacity; resolve the CIDR, gateway, and VIPs; at the start of Phase 2, reject live Host resources that no Pulumi stack tracks, and reject a stack bound to another Host or backend |
 | Phase 1: Preparation | Prepare the Host base; install the pinned `openshift-install` and `oc`; deliver the pull secret to the Host |
 | Phase 2: Lab setup | Resolve the bridge; run Pulumi to create the pool, network, and Guest VMs; in `compact`/`ha`, disable IGMP snooping, assign the Ingress LB VIP to the bridge, and start HAProxy |
 | Phase 3: Installation | Render the installer manifests; build the Agent ISO; attach the ISO and boot every Guest; wait for `install-complete`; eject and remove the ISO; reconcile the `IngressController` replicas |
@@ -170,7 +176,8 @@ answers `/healthz` with `ok`, `virtlab` skips the installation.
 
 `virtlab down` reverses the resources in this order:
 
-1. Pulumi destroys the Guest VMs, volumes, Lab Pool, and Lab Network.
+1. Pulumi destroys the Guest VMs, volumes, Lab Pool, and Lab Network against
+   the Host recorded in the stack. A mismatch stops `down` before host cleanup.
 2. Host cleanup removes any lingering Guest domains, `/home/libvirt/<cluster>`,
    the NetworkManager DNS files, and the Ingress Load Balancer. It does not
    delete the shared pull secret.

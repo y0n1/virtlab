@@ -131,6 +131,12 @@ workerOverrides:
 `virtlab` installs this key on the Host. It also injects the key into the Nodes
 for console access.
 
+Changing `host` or `user` for an existing `clusterName` is not supported.
+`virtlab` binds the Pulumi stack to the Host that created it and stops with an
+error on a change. Tear the lab down on the original Host first, then use the
+same `clusterName` on the new Host. The Pulumi state stores and backup
+procedure are in [state.md](state.md#backup-and-restore).
+
 ## network
 
 | Key | Type | Required | Default | Description |
