@@ -12,7 +12,7 @@
 - **Multi-Topology Presets**: Deploy Single Node OpenShift (**SNO**), 3-node **Compact**, or 5-node **HA** (3 control plane + 2 workers) with validated hardware sizing.
 - **Zero-Friction Workstation Connectivity**: Automatically manages split-DNS (`/etc/resolver` on macOS, systemd-resolved on Linux) and background `sshuttle` tunneling directly into the isolated lab subnet.
 - **Declarative Infrastructure**: Uses Pulumi Automation API with the `libvirt` provider to define dedicated storage pools, isolated virtual networks, and guest VMs.
-- **Unattended Agent-Based Installation**: Automatically renders `install-config` and `agent-config`, triggers the OpenShift agent-based installer, monitors bootstrap progress, and ejects media on completion.
+- **Unattended Agent-Based Installation**: Automatically renders `install-config` and `agent-config`, triggers the OpenShift agent-based installer and monitors bootstrap progress.
 - **End-to-End Verification & Kubeconfig Sync**: Verifies split-DNS, probes `/healthz` and Web Console endpoints, and drops a ready-to-use kubeconfig onto your workstation (`~/.kube/config.<clusterName>`).
 - **Clean Teardown**: Reverts local DNS configs, terminates tunnels, and purges remote VMs and storage volumes in one command.
 
