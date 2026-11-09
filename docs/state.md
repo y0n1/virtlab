@@ -64,8 +64,19 @@ resource classes:
 
 - The Pulumi project is always named `virtlab`.
 - The Pulumi stack is named after `clusterName` in `config.yaml`.
+- The stack records the Host it was applied to in `libvirt:uri`.
+- The stack records the Pulumi backend that owns it in `virtlab:backend`.
 
 Use one `clusterName` for one lab. The stack name is the identity of that lab.
+The recorded Host and backend are a safety binding: `virtlab up` and
+`virtlab down` stop with an error when `config.yaml` targets a different Host,
+or when the active backend changed. `virtlab down` never rewrites
+`libvirt:uri`, so it always destroys against the Host that created the
+resources.
+
+This binding prevents a lost lab. If the same `clusterName` is pointed at a
+second Host, the state is not rewritten and the first Host's resources stay
+reachable.
 
 ### Where the state is stored
 
@@ -78,6 +89,12 @@ Use one `clusterName` for one lab. The stack name is the identity of that lab.
 The default is local. A cloud backend that you selected on purpose is not
 overridden. Do not run bare `pulumi login`. It can switch you to a cloud
 backend.
+
+On the first `virtlab up`, the stack records the active backend URL in
+`virtlab:backend`. A later command compares the active backend with that
+record. If they differ, `virtlab` stops before it reads or writes resources.
+Two equivalent local spellings, `file://~` and `file:///home/<user>`, compare
+equal.
 
 The local backend keeps state under `~/.pulumi/`:
 
@@ -104,11 +121,71 @@ existing stack state becomes unreadable.
 
 | Command | Result |
 |---|---|
-| `virtlab up` | Creates the stack, or reconciles it to the current `config.yaml` |
-| `virtlab down` | Destroys the resources that the stack owns |
+| `virtlab up` | Creates the stack, or reconciles it to the current `config.yaml`. Stops when the stack is bound to another Host or backend. |
+| `virtlab down` | Destroys the resources that the stack owns, against the Host recorded in the stack. Stops when the configured Host or active backend does not match the record. |
 
 If the stack does not exist, `virtlab down` treats the infrastructure as
-already destroyed. This is not an error.
+already destroyed. This is not an error. The host and workstation cleanup
+stages still run.
+
+A missing or empty stack with live Host resources is an unsafe state.
+`virtlab up` stops at the start of Phase 2, because a new stack over existing
+VMs creates duplicates. The error prints the recovery choices.
+
+### Backup and restore
+
+The Pulumi stack is the only record of the libvirt resources. Back it up before
+a Host change, a backend change, or a Workstation migration.
+
+1. Select the backend that `virtlab` uses and list the stacks:
+
+   ```bash
+   export PULUMI_BACKEND_URL="${PULUMI_BACKEND_URL:-file://$HOME}"
+   pulumi stack ls --all
+   ```
+
+2. Export the stack. For the local file backend, the fully qualified stack
+   name is `organization/virtlab/<clusterName>`:
+
+   ```bash
+   pulumi stack export \
+     --stack organization/virtlab/<clusterName> \
+     --file virtlab-<clusterName>.state.json
+   ```
+
+   For a cloud backend, use `<organization>/virtlab/<clusterName>`. The export
+   stays encrypted with the configured passphrase. Keep the file with that
+   passphrase.
+
+3. Restore the export into the same stack:
+
+   ```bash
+   pulumi stack import \
+     --stack organization/virtlab/<clusterName> \
+     --file virtlab-<clusterName>.state.json
+   ```
+
+If the stack record is gone from the backend, create it before the import.
+`pulumi stack init` needs a Pulumi project, so use a temporary one:
+
+```bash
+tmp=$(mktemp -d)
+printf 'name: virtlab\nruntime: yaml\n' > "$tmp/Pulumi.yaml"
+(cd "$tmp" && pulumi stack init organization/virtlab/<clusterName>)
+pulumi stack import \
+  --stack organization/virtlab/<clusterName> \
+  --file virtlab-<clusterName>.state.json
+```
+
+If the CLI cannot reach the backend, the local backend keeps the same record
+in `~/.pulumi/stacks/virtlab/<clusterName>.json` and `.json.bak`. Copy both
+files only while no `virtlab` command runs. Do not edit them.
+
+After a restore, run `virtlab up` to reconcile. If you cannot restore the
+state, run `virtlab down` to remove the leftover VMs and the
+`/home/libvirt/<clusterName>` tree. `down` cannot destroy Pulumi-owned pools or
+networks without state. Remove a remaining `<clusterName>` pool or
+`<clusterName>-net` network with `virsh` before you run `virtlab up` again.
 
 ### Re-running `virtlab up`
 
@@ -227,7 +304,8 @@ Phase 4 verification writes the cluster access files:
    this.
 4. **Secrets stay out of state.** The pull secret stays on the Host.
 5. **State is local.** Do not copy `~/.pulumi`, `state.json`, or kubeconfigs
-   between machines.
+   between machines while a command runs. Use
+   [Backup and restore](#backup-and-restore) to move the Pulumi stack.
 6. **`status` reads live state.** It checks the tunnel PID, SSH reachability,
    the kubeconfig files, and `state.json`. It does not read the Pulumi stack.
 

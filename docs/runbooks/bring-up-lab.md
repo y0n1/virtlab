@@ -69,6 +69,17 @@
   ([`reinstall-cluster.md`](reinstall-cluster.md)).
 - **`co-existing lab ... detected`** → another lab is active on the host or
   workstation; tear it down first.
+- **`Pulumi stack ... was created against Host`** → `hostSsh.host` in
+  `config.yaml` is not the Host that owns the stack. Put the original Host
+  back, or restore the state backup for the new Host
+  ([`../state.md`](../state.md#backup-and-restore)).
+- **`no Pulumi state ... exists` with live resources** → the Host has a lab
+  but virtlab has no record of it. Do not continue. Run `virtlab down` with the
+  original config to discard the leftovers, or restore the state backup
+  ([`../state.md`](../state.md#backup-and-restore)).
+- **`recorded on backend ... but the active backend is`** → `PULUMI_BACKEND_URL`
+  or `pulumi login` changed. Select the recorded backend, or restore the state
+  there ([`../state.md`](../state.md#backup-and-restore)).
 - **Phase 3 fails during image build or bootstrap** →
   [`recover-failed-install.md`](recover-failed-install.md).
 - **`up` skips installation because the cluster is already healthy** → the
