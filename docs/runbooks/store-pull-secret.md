@@ -4,8 +4,8 @@
 > expects, readable only by root.
 > **Risk:** low — the cluster cannot pull images without it, but nothing is
 > destroyed; the real hazard is leaking the secret.
-> **Success:** `stat` shows mode `600`, owner `root`, and the path matches the
-> stack configuration.
+> **Success:** `stat` shows mode `600`, owner `root`, at the fixed Host path
+> `/root/pull-secret.json`.
 
 ## Prereqs
 - Root shell on the host prepared by [`prepare-host-vm.md`](prepare-host-vm.md).
@@ -18,7 +18,7 @@
 
    `Expected:` a `pull-secret.json` file under your download path.
 
-2. **Install it at the configured path with restrictive permissions:**
+2. **Install it at the fixed Host path with restrictive permissions:**
 
    ```bash
    install -m 600 -o root -g root /path/to/pull-secret.json /root/pull-secret.json
@@ -34,13 +34,16 @@
 
    `Expected:` `600 root /root/pull-secret.json`.
 
-4. **Confirm the path matches the stack configuration:**
+4. **Confirm the Workstation source, if you use one:**
 
    ```bash
-   grep 'pullSecretPath' config.yaml
+   grep 'pullSecretFile' config.yaml
    ```
 
-   `Expected:` the same path shown by step 3.
+   `Expected:` the path of the pull secret on the Workstation. If you rely on
+   the `ocm` CLI instead, the key is absent and `virtlab up` retrieves the
+   secret automatically. `virtlab up` always delivers the bytes to
+   `/root/pull-secret.json` on the Host and overwrites the manual copy.
 
 The bytes are injected host-side into `install-config.yaml` at image build
 time. They never enter the repo, the Pulumi program, or the stack state — only
@@ -49,7 +52,8 @@ the path appears in configuration.
 ## Verify
 
 - `stat -c '%a %U' /root/pull-secret.json` → `600 root`.
-- `grep pullSecretPath config.yaml` → matches the path.
+- `grep pullSecretFile config.yaml` → the Workstation source path, or no
+  output when `virtlab` uses `ocm`.
 - `git ls-files | grep -q pull-secret` → no output.
 
 ## Troubleshooting
@@ -58,8 +62,8 @@ the path appears in configuration.
   the endpoint requires an authenticated session.
 - **`stat` shows `644`** → re-run step 2 with `install -m 600`; do not use
   `chmod` after a copy that already exposed the file.
-- **Path mismatch with the stack** → move the file to the configured path
-  rather than editing the configuration.
+- **Path mismatch** → install the file at `/root/pull-secret.json`; do not add
+  a Host path to `config.yaml`.
 - **Secret already leaked** (committed, pasted, or shared) → revoke and
   regenerate it in the Red Hat console before continuing.
 
@@ -75,6 +79,6 @@ the path appears in configuration.
 ## Related
 
 - Path and injection: `config.yaml` (`pullSecretFile`),
-  `internal/workstation/pullsecret.go`.
+  `internal/workstation/pullsecret.go`, and `internal/host/pullsecret.go`.
 - Preflight: `internal/cluster/openshift.go`.
 - Ignore rule: `.gitignore` (`**/pull-secret.json`).
