@@ -1,80 +1,84 @@
 # SOP: Access the cluster
 
 > **Purpose:** give the laptop an authenticated `oc` session against the
-> running single-node cluster.
-> **Risk:** low — no cluster mutation; only credentials on the laptop are
-> touched.
-> **Success:** `oc get nodes` lists `master-0` as `Ready`.
+> running cluster using the credentials `virtlab up` already synced.
+> **Risk:** low — no cluster mutation; only local credentials are read.
+> **Success:** `oc get nodes` lists every node as `Ready`.
 
 ## Prereqs
-- [`bring-up-lab.md`](bring-up-lab.md) complete and the acceptance gate green.
-- [`configure-laptop-dns.md`](configure-laptop-dns.md) complete (the API name must resolve).
-- `oc` installed on the laptop at the pinned version.
+- [`bring-up-lab.md`](bring-up-lab.md) complete; Phase 4 finished.
+- `oc` installed on the laptop.
+- The laptop can resolve the cluster zone (Phase 4 configures split-DNS and
+  sshuttle; see [`configure-laptop-dns.md`](configure-laptop-dns.md) and
+  [`connect-workstation-sshuttle.md`](connect-workstation-sshuttle.md) only
+  when diagnosing).
 
 ## Steps
 
-1. **Copy the kubeconfig from the host:**
+1. **Point `oc` at the synced kubeconfig:**
 
    ```bash
-   scp root@<host>:/home/libvirt/demo/cluster/auth/kubeconfig \
-       ~/.kube/config.demo
+   export KUBECONFIG=~/.kube/config.<clusterName>
    ```
 
-   `Expected:` the file is transferred.
+   `Expected:` no output. The file is written with `0600` permissions by
+   Phase 4.
 
-2. **Use it for this shell:**
+2. **Confirm admin access:**
 
    ```bash
-   export KUBECONFIG=~/.kube/config.demo
+   oc get nodes
    ```
 
-   `Expected:` no output.
+   `Expected:` every node listed as `Ready`.
 
-3. **Log in as the install-time administrator:**
+3. **Log in interactively only when you need a fresh session:**
 
    ```bash
-   oc login -u kubeadmin https://api.demo.example.com:6443
+   oc login -u kubeadmin https://api.<clusterName>.<baseDomain>:6443
    ```
 
-   `Expected:` `Login successful`.
+   Use the password from `~/.kube/kubeadmin-password.<clusterName>` when
+   prompted. `Expected:` `Login successful`.
 
-4. **Get the password when prompted** from the host:
+4. **Open the web console** (URL printed by the access banner):
 
-   ```bash
-   ssh root@<host> 'cat /home/libvirt/demo/cluster/auth/kubeadmin-password'
+   ```text
+   https://console-openshift-console.apps.<clusterName>.<baseDomain>
    ```
 
-   `Expected:` the password; it is also the `kubeadminPasswordPath` stack
-   output.
+   Log in as `kubeadmin` with the password from step 3.
 
 ## Verify
 
 - `oc whoami` → `kubeadmin`.
-- `oc get nodes` → `master-0` with `Ready`.
+- `oc get nodes` → every node `Ready`.
 - `oc get clusterversion` → the installed version.
-- `oc get co` → every operator `True` for Available.
+- `oc get co` → every operator `Available=True`.
 
 ## Troubleshooting
 
-- **`connection refused` / name does not resolve** → the laptop resolver or
-  the tailnet route is missing; see [`configure-laptop-dns.md`](configure-laptop-dns.md).
+- **`connection refused` / name does not resolve** → the workstation tunnel
+  or split-DNS is missing; run `virtlab status`, then re-run `virtlab up`.
 - **`x509: certificate is valid for …`** → you reached the wrong endpoint;
-  confirm the API name and that `/etc/resolver/example.com` points at the host.
-- **`Login failed (401 Unauthorized)`** → wrong password; read it from the
-  host path above, not from an old copy.
+  confirm the API name matches `clusterName` and `baseDomain`.
+- **`Login failed (401 Unauthorized)`** → wrong password; read it from
+  `~/.kube/kubeadmin-password.<clusterName>`.
 - **`oc` cannot find a config** → `KUBECONFIG` is not exported in this shell;
-  repeat step 2.
+  repeat step 1.
+- **Kubeconfig missing** → Phase 4 did not finish; re-run `virtlab up`.
 
 ## Never do
 
 - **Never commit the kubeconfig or the kubeadmin password** to the repo.
-- **Never delete `auth/kubeconfig` on the host** — the bootstrap resume guard
-  uses it to adopt a healthy cluster.
+- **Never delete `<installDir>/auth/kubeconfig` on the host** — the bootstrap
+  resume guard uses it to adopt a healthy cluster.
 - **Never use `kubeadmin` for routine work**; create named users for day-2.
 - **Never copy credentials into Pulumi config or stack state.**
 
 ## Related
 
-- Outputs: `main.go` (`kubeconfigPath`, `kubeadminPasswordPath`, `apiUrl`).
-- Install tree: `internal/cluster/openshift.go`.
+- Credential sync: `internal/verification/verify.go` (`syncCredentials`).
+- Paths: `~/.kube/config.<clusterName>`,
+  `~/.kube/kubeadmin-password.<clusterName>`.
 - Day-2 recovery: [`recover-failed-install.md`](recover-failed-install.md).

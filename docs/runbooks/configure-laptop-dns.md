@@ -12,7 +12,7 @@
 
 1. **Create the split-DNS entry for the cluster zone:**
 
-   *Note: `make up` or `lab up` applies this automatically with explicit microcopy.*
+   *Note: `virtlab up` applies this automatically in Phase 4.*
 
    **On macOS:**
    ```bash
@@ -83,7 +83,8 @@ it across every router node.
 
 ## Related
 
-- Zone configuration: `config.yaml` (`lab.cluster.baseDomain`) and `config.yaml`.
+- Zone configuration: `config.yaml` (`baseDomain`) and
+  `internal/workstation/splitdns.go`.
 - Domain language: [`../UBIQUITOUS-LANGUAGE.md`](../UBIQUITOUS-LANGUAGE.md).
 - Tunnel setup: [`connect-workstation-sshuttle.md`](connect-workstation-sshuttle.md).
 - Next: [`bring-up-lab.md`](bring-up-lab.md).

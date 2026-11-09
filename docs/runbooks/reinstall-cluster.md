@@ -1,16 +1,16 @@
 # SOP: Reinstall the cluster
 
-> **Purpose:** deliberately reproduce the cluster from scratch, or re-fire the
-> image and bootstrap after a configuration change.
-> **Risk:** high — the from-scratch path deletes the running cluster and its
-> disk before rebuilding it.
-> **Success:** a fresh install passes the acceptance gate and `oc get nodes`
-> reports `master-0` Ready again.
+> **Purpose:** deliberately rebuild the cluster from scratch after a preset,
+> version, or topology change.
+> **Risk:** high — deletes the running cluster and its disk before rebuilding
+> it.
+> **Success:** a fresh `virtlab up` finishes with the access banner and
+> `oc get nodes` reports every node `Ready`.
 
 ## Prereqs
-- [`bring-up-lab.md`](bring-up-lab.md) has completed at least once.
+- [`bring-up-lab.md`](bring-up-lab.md) completed at least once.
 - A VMware snapshot of the host VM taken immediately before this procedure.
-- [`teardown-lab.md`](teardown-lab.md) and [`bring-up-lab.md`](bring-up-lab.md) available for the from-scratch path.
+- `config.yaml` edited for the target `preset`, `ocpVersion`, or overrides.
 
 ## Steps
 
@@ -18,87 +18,71 @@
 
    `Expected:` the snapshot completes.
 
-2. **Decide which path you need:**
+2. **Confirm the change cannot apply in place:**
 
-   - **Config change (in place):** editing the rendered configs or the OCP
-     version re-fires `cluster-image` → `cluster-bootstrap`; `up` reinstalls
-     over the existing guest.
-   - **Preset change (from scratch):** switching between `sno` and
-     `compact`/`ha` changes the installer `platform` (`none` ↔ `baremetal`),
-     which is immutable. Use the from-scratch path.
-   - **Reproduce from scratch:** the resume guard adopts a healthy cluster, so
-     a no-op `up` never resets it; you must remove the cluster first.
+   - `sno` ↔ `compact`/`ha` changes the installer `platform`
+     (`None` ↔ `BareMetal`), which is immutable.
+   - `ocpVersion` and rendered manifests are not re-applied by `virtlab up`
+     while the cluster is healthy; the resume guard adopts it.
+   - VM sizing and count changes still require a fresh install to converge.
 
-3. **Config-change path:**
+   `Expected:` any of the above means the from-scratch path below.
+
+3. **Tear the lab down completely:**
 
    ```bash
-   pulumi preview --stack demo
-   pulumi up --stack demo
+   virtlab down -y
    ```
 
-   `Expected:` the preview shows `cluster-image` and `cluster-bootstrap`
-   replaced or updated; `up` re-runs them.
+   `Expected:` every stage succeeds; see [`teardown-lab.md`](teardown-lab.md)
+   to verify the host and workstation are clean.
 
-4. **From-scratch path — remove the lab, including host artifacts:**
+4. **Rebuild from the updated configuration:**
 
-   Follow [`teardown-lab.md`](teardown-lab.md) (it also removes the install tree and the host DNS
-   bridge, which `pulumi destroy` alone leaves behind).
+   ```bash
+   virtlab up
+   ```
 
-   `Expected:` no domain, network or pool; install tree gone.
-
-5. **Rebuild:**
-
-   Follow [`bring-up-lab.md`](bring-up-lab.md) from step 2 (the snapshot already exists).
-
-   `Expected:` a fresh image build and install, then the acceptance gate.
-
-6. **Re-establish laptop access:**
-
-   The old kubeconfig and admin password were removed with the install tree;
-   repeat [`access-cluster.md`](access-cluster.md).
+   `Expected:` Phase 2 recreates the VMs and Phase 3 performs a fresh image
+   build and install; the run ends with the access banner.
 
 ## Verify
 
-- `make test` → all
-  pass.
-- `oc get nodes` → `master-0` `Ready`.
-- `oc get clusterversion` → the pinned version (or the version you changed
-  to).
-- `pulumi stack output installDir` → repopulated with the ISO retained.
+- `virtlab status` → tunnel active, host reachable, kubeconfig and password
+  found.
+- `export KUBECONFIG=~/.kube/config.<clusterName>` then `oc get nodes` →
+  every node `Ready`.
+- `oc get clusterversion` → the version you changed to.
+- `oc get infrastructure cluster -o jsonpath='{.status.platform}'` →
+  `None` for `sno`, `BareMetal` for `compact`/`ha`.
 
 ## Troubleshooting
 
-- **`up` finishes without reinstalling** → the resume guard adopted the
-  healthy cluster; use the from-scratch path (step 4).
-- **`pulumi destroy` hangs or is interrupted** → `pulumi cancel --stack
-  demo`, then re-run it; never hand-delete libvirt objects while it
-  runs.
-- **`up` fails after the teardown** → [`recover-failed-install.md`](recover-failed-install.md); the
-  install tree is empty, so recovery starts from the image build.
-- **Old cluster artifacts reappear** → you skipped [`teardown-lab.md`](teardown-lab.md); a bare
-  `pulumi destroy` does not remove `/home/libvirt/demo`.
-- **`virtlab up` refuses to start with a platform mismatch** → the live cluster's
-  `platform` differs from what the current preset installs (`None` for `sno`,
-  `BareMetal` for `compact`/`ha`). `platform` is immutable, so this is the
-  from-scratch path: `virtlab down`, then `virtlab up`.
+- **`up` finishes without reinstalling** → the cluster was still healthy; you
+  skipped step 3. Run `virtlab down -y` first.
+- **`platform is immutable after install`** → same cause; the from-scratch
+  path is required.
+- **Teardown failed** → fix the reported stage and re-run `virtlab down`
+  before running `virtlab up`.
+- **Old artifacts reappear** → the host teardown stage did not finish; check
+  `/home/libvirt/<clusterName>` and the ingress LB unit.
+- **`up` fails after the teardown** →
+  [`recover-failed-install.md`](recover-failed-install.md); the install tree
+  is empty, so recovery starts at the image build.
 
 ## Never do
 
 - **Never destroy without a snapshot** — it is the only rollback.
-- **Never run `pulumi refresh` while the cluster is up** — refresh plus `up`
-  powers the VM off.
-- **Never `virsh destroy` the guest during an update** unless recovering.
+- **Never expect a preset change to apply in place** — `platform` is
+  immutable; tear down first.
+- **Never hand-run `openshift-install`** to force a reinstall; change the
+  configuration and use the documented teardown.
 - **Never delete the stock `default` libvirt network or pool** — unrelated to
   the lab.
-- **Never hand-run `openshift-install`** to force a reinstall; change the
-  stack or use the documented teardown.
-- **Never expect a preset change to apply in place** — `sno` ↔ `compact`/`ha`
-  changes `platform`, which the installer refuses to change on an existing
-  cluster; tear down first.
 
 ## Related
 
-- Teardown and rebuild: [`teardown-lab.md`](teardown-lab.md), [`bring-up-lab.md`](bring-up-lab.md).
-- Command keying: `internal/cluster/openshift.go`,
-  `internal/host`.
-- Recovery: [`recover-failed-install.md`](recover-failed-install.md).
+- Teardown and rebuild: [`teardown-lab.md`](teardown-lab.md),
+  [`bring-up-lab.md`](bring-up-lab.md).
+- Platform guard: `internal/cluster/platform.go`.
+- Resume guard: `internal/cluster/openshift.go`.

@@ -13,10 +13,9 @@
 
 ## Prereqs
 - Root shell on a host prepared by [`prepare-host-vm.md`](prepare-host-vm.md).
-- `openshift-install` and `oc` for the pinned version, obtained from the
-  matching OpenShift release image (owner-provisioned; the stack does not
-  download tools). The pinned version and release image are recorded in
-  `internal/config/config.go`.
+- `virtlab up` installs `openshift-install` and `oc` for the configured
+  `ocpVersion` during Phase 1 Host Preparation. This SOP is the manual
+  verification and fallback procedure when that install fails.
 
 ## Steps
 
@@ -70,9 +69,8 @@ the bootstrap script; do not edit the script or a hand-copied version.
   non-interactive PATH; install it under `/usr/local/bin` or symlink it there.
 - **quay returns `403`/timeout** → host egress or proxy problem; the image
   build cannot proceed.
-- **Tools installed but the preflight still fails** → run
-  `pulumi preview --stack demo`; the preflight message names the failing
-  check.
+- **Tools installed but the preflight still fails** → re-run `virtlab up`;
+  the Phase 1 preflight message names the failing check.
 
 ## Never do
 
@@ -86,6 +84,6 @@ the bootstrap script; do not edit the script or a hand-copied version.
 ## Related
 
 - Pin: `internal/config/config.go` (`ocpVersion`) and
-  `config.yaml` (`lab.cluster.ocpVersion`).
+  `config.yaml` (`ocpVersion`).
 - Preflight: `internal/cluster/openshift.go`.
 - Next: [`store-pull-secret.md`](store-pull-secret.md).
