@@ -236,6 +236,30 @@ func TestValidateStatic(t *testing.T) {
 		}
 	})
 
+	t.Run("CIDR too small for the network plan", func(t *testing.T) {
+		tests := []struct {
+			cidr  string
+			valid bool
+		}{
+			{"192.168.0.0/16", true},
+			{"192.168.100.0/23", true},
+			{"192.168.100.0/24", true},
+			{"192.168.100.0/25", false}, // DHCP range offset .200 is outside .0-.127
+			{"192.168.100.0/27", false}, // DHCP range offset .200 is outside .0-.31
+			{"192.168.100.0/28", false}, // node lease offset .20 is outside .0-.15
+			{"192.168.100.0/30", false},
+		}
+
+		for _, tt := range tests {
+			c := validConfig()
+			c.Network.CIDR = tt.cidr
+			res := ValidateStatic(c)
+			if got := res.Valid(); got != tt.valid {
+				t.Errorf("CIDR %s valid = %v, want %v (errors: %s)", tt.cidr, got, tt.valid, res.Summary())
+			}
+		}
+	})
+
 	t.Run("WorkerOverrides warning with SNO preset", func(t *testing.T) {
 		c := validConfig()
 		c.Preset = PresetSNO

@@ -130,6 +130,11 @@ func (m *OpenShiftManager) RenderAgentConfig() (string, error) {
 		return "", err
 	}
 
+	prefixLength, err := config.PrefixLength(m.Config.Network.CIDR)
+	if err != nil {
+		return "", fmt.Errorf("resolve network prefix length: %w", err)
+	}
+
 	rendezvousIP := leases[0].IP
 
 	tmplText := `apiVersion: v1alpha1
@@ -158,7 +163,7 @@ hosts:
             enabled: true
             address:
               - ip: {{.IP}}
-                prefix-length: 24
+                prefix-length: {{$.PrefixLength}}
             dhcp: false
       dns-resolver:
         config:
@@ -197,6 +202,7 @@ hosts:
 		"ClusterName":  m.Config.ClusterName,
 		"RendezvousIP": rendezvousIP,
 		"GatewayIP":    m.Config.Network.GatewayIP,
+		"PrefixLength": prefixLength,
 		"Nodes":        nodes,
 	}
 

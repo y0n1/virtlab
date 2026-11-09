@@ -103,6 +103,76 @@ func TestRenderConfigs_HA(t *testing.T) {
 	}
 }
 
+type agentConfigDoc struct {
+	Hosts []struct {
+		Hostname      string `yaml:"hostname"`
+		NetworkConfig struct {
+			Interfaces []struct {
+				IPv4 struct {
+					Address []struct {
+						IP           string `yaml:"ip"`
+						PrefixLength int    `yaml:"prefix-length"`
+					} `yaml:"address"`
+				} `yaml:"ipv4"`
+			} `yaml:"interfaces"`
+		} `yaml:"networkConfig"`
+	} `yaml:"hosts"`
+}
+
+func TestRenderAgentConfig_PrefixLength(t *testing.T) {
+	tests := []struct {
+		name       string
+		preset     string
+		cidr       string
+		wantPrefix int
+		wantHosts  int
+	}{
+		{"16-bit prefix", config.PresetHA, "192.168.0.0/16", 16, 5},
+		{"24-bit prefix", config.PresetHA, "192.168.100.0/24", 24, 5},
+		{"28-bit prefix", config.PresetSNO, "192.168.100.0/28", 28, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				ClusterName: "lab-prefix",
+				BaseDomain:  "example.com",
+				Preset:      tt.preset,
+				Network: config.NetworkConfig{
+					CIDR:      tt.cidr,
+					GatewayIP: "192.168.100.1",
+				},
+			}
+			mgr := NewOpenShiftManager(cfg, nil)
+
+			ac, err := mgr.RenderAgentConfig()
+			if err != nil {
+				t.Fatalf("render agent-config: %v", err)
+			}
+
+			var doc agentConfigDoc
+			if err := yaml.Unmarshal([]byte(ac), &doc); err != nil {
+				t.Fatalf("parse agent-config: %v\n%s", err, ac)
+			}
+			if len(doc.Hosts) != tt.wantHosts {
+				t.Fatalf("hosts = %d, want %d:\n%s", len(doc.Hosts), tt.wantHosts, ac)
+			}
+			for _, host := range doc.Hosts {
+				if len(host.NetworkConfig.Interfaces) != 1 {
+					t.Fatalf("host %s interfaces = %d, want 1", host.Hostname, len(host.NetworkConfig.Interfaces))
+				}
+				addrs := host.NetworkConfig.Interfaces[0].IPv4.Address
+				if len(addrs) != 1 {
+					t.Fatalf("host %s addresses = %d, want 1", host.Hostname, len(addrs))
+				}
+				if addrs[0].PrefixLength != tt.wantPrefix {
+					t.Errorf("host %s prefix-length = %d, want %d", host.Hostname, addrs[0].PrefixLength, tt.wantPrefix)
+				}
+			}
+		})
+	}
+}
+
 type installConfigPlatformDoc struct {
 	Platform struct {
 		None      *struct{} `yaml:"none"`
