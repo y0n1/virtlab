@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optdestroy"
@@ -18,6 +19,7 @@ import (
 var (
 	selectStackInlineSourceFn = auto.SelectStackInlineSource
 	isSelectStack404ErrorFn   = auto.IsSelectStack404Error
+	getStoredCredentialsFn    = workspace.GetStoredCredentials
 )
 
 // EnsurePulumiPassphrase ensures PULUMI_CONFIG_PASSPHRASE is defined in the environment.
@@ -30,6 +32,30 @@ func EnsurePulumiPassphrase() {
 			_ = os.Setenv("PULUMI_CONFIG_PASSPHRASE", "")
 		}
 	}
+}
+
+// EnsurePulumiBackend defaults PULUMI_BACKEND_URL to the local file backend so a
+// fresh workstation does not need `pulumi login --local` before `virtlab up` or
+// `virtlab down`.
+//
+// The lab is local-only, but an operator may have deliberately selected another
+// backend (via PULUMI_BACKEND_URL, PULUMI_ACCESS_TOKEN, or `pulumi login`), so the
+// default must only apply when no backend is configured.
+func EnsurePulumiBackend() {
+	if os.Getenv("PULUMI_BACKEND_URL") != "" || os.Getenv("PULUMI_ACCESS_TOKEN") != "" {
+		return
+	}
+
+	creds, err := getStoredCredentialsFn()
+	if err != nil || creds.Current != "" {
+		return
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	_ = os.Setenv("PULUMI_BACKEND_URL", "file://"+filepath.ToSlash(home))
 }
 
 // Infrastructure manages Phase 2 Lab Setup: storage pool, network, and guest VMs.
