@@ -82,9 +82,12 @@
   there ([`../state.md`](../state.md#backup-and-restore)).
 - **Phase 3 fails during image build or bootstrap** →
   [`recover-failed-install.md`](recover-failed-install.md).
+- **`up` reports `config.yaml no longer matches its applied declaration`** →
+  the cluster is healthy but the preset, version, or node inventory changed.
+  These changes do not apply in place; run `virtlab down` then `virtlab up`
+  ([`reinstall-cluster.md`](reinstall-cluster.md)).
 - **`up` skips installation because the cluster is already healthy** → the
-  resume guard adopted it; this is expected. A healthy cluster is not
-  reinstalled when config or version changes.
+  applied declaration still matches `config.yaml`; this is expected.
 - **A re-run after an interruption** → install artifacts are reused; re-run
   `virtlab up`.
 

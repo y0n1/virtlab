@@ -222,17 +222,14 @@ func (m *OpenShiftManager) Install(ctx context.Context) error {
 	dir := m.InstallDir()
 	fmt.Printf("\n[OpenShift] Preparing cluster installation in '%s' on Host...\n", dir)
 
-	// 1. Check resume guard (is cluster already healthy?)
-	cfg := m.Config
-
-	resumeCheck := fmt.Sprintf(`
-if [ -f "%s/auth/kubeconfig" ] && curl -sk -m 3 "https://%s:6443/healthz" 2>/dev/null | grep -qx ok; then
-  echo "ALREADY_INSTALLED"
-fi
-`, dir, cfg.APIHost())
-
-	out, _ := m.Host.Client.Run(resumeCheck)
-	if strings.Contains(out, "ALREADY_INSTALLED") {
+	// 1. Check resume guard. A healthy cluster is adopted only when its applied
+	// declaration still matches config.yaml. An unhealthy or unknown probe
+	// aborts the run so that a transient failure cannot destroy credentials.
+	alreadyInstalled, err := m.checkResume()
+	if err != nil {
+		return err
+	}
+	if alreadyInstalled {
 		fmt.Printf("✔ Cluster is already installed and healthy (/healthz ok). Skipping re-installation.\n")
 		return nil
 	}
@@ -311,8 +308,220 @@ virsh start "$DOM" || true
 		return fmt.Errorf("openshift install failed or timed out: %w", waitErr)
 	}
 
+	// 9. Persist the applied declaration so the next `up` can detect drift.
+	// A failure here must not turn a successful install into a failed run.
+	if err := m.persistInstallState(); err != nil {
+		fmt.Printf("⚠ Warning: cluster is installed but the applied state could not be recorded: %v\n", err)
+	}
+
 	fmt.Printf("✔ OpenShift cluster installation completed successfully!\n")
 	return nil
+}
+
+// Probe markers. They are emitted on their own lines so the parser can find
+// them even when SSH adds a banner or a shell warning to stdout.
+const (
+	probeStatusPrefix = "VIRTLAB_STATUS="
+	probeStateBegin   = "VIRTLAB_STATE_BEGIN"
+	probeStateEnd     = "VIRTLAB_STATE_END"
+
+	probeStatusNotInstalled = "NOT_INSTALLED"
+	probeStatusHealthy      = "HEALTHY"
+	probeStatusUnhealthy    = "UNHEALTHY"
+	probeStatusUnknown      = "UNKNOWN"
+)
+
+// installProbeScript reports whether a cluster is installed, whether its API
+// is healthy, and the persisted install state. It never mutates anything.
+const installProbeScript = `set -u
+DIR='%s'
+STATE="$DIR/%s"
+if [ ! -f "$DIR/auth/kubeconfig" ]; then
+  echo "VIRTLAB_STATUS=NOT_INSTALLED"
+  exit 0
+fi
+if curl -sk -m 3 "https://%s:6443/healthz" 2>/dev/null | grep -qx ok; then
+  echo "VIRTLAB_STATUS=HEALTHY"
+else
+  echo "VIRTLAB_STATUS=UNHEALTHY"
+fi
+if [ -f "$STATE" ]; then
+  echo "VIRTLAB_STATE_BEGIN"
+  cat "$STATE"
+  echo "VIRTLAB_STATE_END"
+fi
+`
+
+// resumeProbe is the parsed result of installProbeScript.
+type resumeProbe struct {
+	Status string
+	State  *InstallState
+}
+
+// checkResume decides whether Phase 3 can skip installation. It returns true
+// only for a healthy cluster whose applied declaration still matches
+// config.yaml. Any ambiguous or unsafe state returns an error, so Install
+// never falls through to a destructive reinstall.
+func (m *OpenShiftManager) checkResume() (bool, error) {
+	probe, err := m.probeResume()
+	if err != nil {
+		return false, fmt.Errorf(
+			"cluster: cannot determine whether a cluster is already installed at %s; refusing to modify it: %w",
+			m.InstallDir(), err)
+	}
+
+	switch probe.Status {
+	case probeStatusNotInstalled:
+		return false, nil
+
+	case probeStatusHealthy:
+		if err := m.verifyAppliedState(probe.State); err != nil {
+			return false, err
+		}
+		return true, nil
+
+	case probeStatusUnhealthy:
+		return false, fmt.Errorf(
+			"cluster: cluster assets exist at %s but the API did not answer https://%s:6443/healthz; the install state is unknown, so virtlab will not reinstall over it. Inspect it with 'virtlab status', then either recover the cluster or rebuild it with 'virtlab down -y' and 'virtlab up'",
+			m.InstallDir(), m.Config.APIHost())
+
+	default:
+		return false, fmt.Errorf(
+			"cluster: could not determine the install state at %s; refusing to modify it. Check Host connectivity and retry, or rebuild with 'virtlab down -y' and 'virtlab up'",
+			m.InstallDir())
+	}
+}
+
+// EnsureDeclarationCompatible fails in preflight when a healthy cluster was
+// installed from a declaration that config.yaml no longer matches. It runs
+// after the subnet is resolved so auto-allocated IPs are compared correctly.
+//
+// It is deliberately permissive when the probe cannot determine the state: a
+// flaky probe must not block recovery. Install re-checks and aborts safely
+// before touching the install tree.
+func (m *OpenShiftManager) EnsureDeclarationCompatible() error {
+	if m.Host == nil && m.runCommand == nil {
+		return nil
+	}
+
+	probe, err := m.probeResume()
+	if err != nil {
+		fmt.Printf("⚠ Warning: could not verify the installed cluster declaration: %v\n", err)
+		return nil
+	}
+	if probe.Status != probeStatusHealthy || probe.State == nil {
+		// Phase 3 reports the legacy missing-state warning and adopts the
+		// cluster; there is nothing to compare here.
+		return nil
+	}
+	return m.verifyAppliedState(probe.State)
+}
+
+// probeResume runs installProbeScript on the Host and parses the result.
+func (m *OpenShiftManager) probeResume() (*resumeProbe, error) {
+	if m.runCommand == nil && m.Host == nil {
+		return nil, fmt.Errorf("no Host client configured")
+	}
+	script := fmt.Sprintf(installProbeScript, m.InstallDir(), installStateFile, m.Config.APIHost())
+	out, err := m.run(script)
+	if err != nil {
+		return nil, err
+	}
+	return parseResumeProbe(out)
+}
+
+// parseResumeProbe extracts the status and optional state block from probe
+// output. It returns an error when a state block is present but unparseable,
+// because silently ignoring a corrupt record would defeat the guard.
+func parseResumeProbe(out string) (*resumeProbe, error) {
+	probe := &resumeProbe{Status: probeStatusUnknown}
+	var state strings.Builder
+	inState := false
+
+	for _, raw := range strings.Split(out, "\n") {
+		line := strings.TrimRight(raw, "\r")
+		switch {
+		case strings.HasPrefix(line, probeStatusPrefix):
+			probe.Status = strings.TrimSpace(strings.TrimPrefix(line, probeStatusPrefix))
+		case line == probeStateBegin:
+			inState = true
+		case line == probeStateEnd:
+			inState = false
+		default:
+			if inState {
+				state.WriteString(line)
+				state.WriteString("\n")
+			}
+		}
+	}
+
+	if state.Len() > 0 {
+		parsed, err := ParseInstallState(state.String())
+		if err != nil {
+			return nil, err
+		}
+		probe.State = parsed
+	}
+	return probe, nil
+}
+
+// verifyAppliedState fails when the healthy cluster was installed from a
+// declaration that config.yaml no longer matches.
+func (m *OpenShiftManager) verifyAppliedState(installed *InstallState) error {
+	if installed == nil {
+		fmt.Printf("⚠ Warning: cluster is healthy but %s is missing (installed by an older virtlab); cannot verify that config.yaml matches it.\n", installStateFile)
+		return nil
+	}
+
+	desired, err := m.DesiredInstallState()
+	if err != nil {
+		return fmt.Errorf("cluster: compute desired install state: %w", err)
+	}
+
+	diffs := installed.Diff(desired)
+	if len(diffs) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"cluster '%s' is installed but config.yaml no longer matches its applied declaration:\n  - %s\nThe cluster was left untouched. These changes cannot be applied in place; run 'virtlab down -y' and then 'virtlab up' to rebuild it",
+		m.Config.ClusterName, strings.Join(diffs, "\n  - "))
+}
+
+// persistInstallState writes the applied declaration after a successful
+// install. The write is atomic and restricted to the owner.
+func (m *OpenShiftManager) persistInstallState() error {
+	desired, err := m.DesiredInstallState()
+	if err != nil {
+		return err
+	}
+	body, err := RenderInstallState(desired)
+	if err != nil {
+		return err
+	}
+	script := BuildPersistStateScript(m.InstallDir(), body)
+	if _, err := m.Host.Client.RunScript(script); err != nil {
+		return fmt.Errorf("write %s: %w", installStateFile, err)
+	}
+	return nil
+}
+
+// BuildPersistStateScript constructs the remote script that atomically writes
+// the applied install state with owner-only permissions.
+func BuildPersistStateScript(dir, body string) string {
+	return fmt.Sprintf(`
+set -euo pipefail
+umask 0077
+DIR='%s'
+STATE="$DIR/%s"
+TMP="$STATE.tmp"
+mkdir -p -m 0700 "$DIR"
+cat <<'EOF' > "$TMP"
+%s
+EOF
+chmod 0600 "$TMP"
+mv -f "$TMP" "$STATE"
+`, dir, installStateFile, strings.TrimRight(body, "\n"))
 }
 
 // BuildIngressReplicasScript returns the host script that reconciles the
@@ -355,7 +564,8 @@ func (m *OpenShiftManager) EnsureIngressReplicas(ctx context.Context) error {
 
 // BuildSetupScript constructs the remote bash script that prepares the installer directory,
 // generates install-config.yaml and agent-config.yaml with secure 0600 permissions,
-// and injects the pull secret.
+// and injects the pull secret. It never deletes the directory wholesale: credentials
+// are backed up and the manifests are replaced only when their content changes.
 func (m *OpenShiftManager) BuildSetupScript(dir, ic, ac string) string {
 	return fmt.Sprintf(`
 set -euo pipefail
@@ -363,19 +573,23 @@ umask 0077
 DIR='%s'
 mkdir -p -m 0700 "$DIR"
 chmod 0700 "$DIR"
-find "$DIR" -mindepth 1 -delete
 
-cat <<'EOF' > "$DIR/install-config.yaml"
+# Preserve credentials from any earlier attempt before touching anything.
+if [ -d "$DIR/auth" ] && [ ! -e "$DIR/auth.backup" ]; then
+  cp -a "$DIR/auth" "$DIR/auth.backup"
+  chmod 0700 "$DIR/auth.backup"
+  chmod 0600 "$DIR/auth.backup"/* 2>/dev/null || true
+fi
+
+CHANGED=0
+
+# install-config.yaml: render to a temp file, inject the pull secret, and
+# replace the live manifest only when the content differs.
+IC_TMP="$DIR/.install-config.yaml.new"
+cat <<'EOF' > "$IC_TMP"
 %s
 EOF
-
-cat <<'EOF' > "$DIR/agent-config.yaml"
-%s
-EOF
-
-chmod 0600 "$DIR/install-config.yaml" "$DIR/agent-config.yaml"
-
-python3 - /root/pull-secret.json "$DIR/install-config.yaml" <<'PYEOF'
+python3 - /root/pull-secret.json "$IC_TMP" <<'PYEOF'
 import json, sys, os
 raw = open(sys.argv[1]).read()
 ps = json.dumps(json.dumps(json.loads(raw)))
@@ -386,6 +600,32 @@ with open(p, "w") as f:
     f.write("\n".join(lines) + "\n")
 os.chmod(p, 0o600)
 PYEOF
+if [ -f "$DIR/install-config.yaml" ] && cmp -s "$IC_TMP" "$DIR/install-config.yaml"; then
+  rm -f "$IC_TMP"
+else
+  mv -f "$IC_TMP" "$DIR/install-config.yaml"
+  CHANGED=1
+fi
+
+# agent-config.yaml
+AC_TMP="$DIR/.agent-config.yaml.new"
+cat <<'EOF' > "$AC_TMP"
+%s
+EOF
+if [ -f "$DIR/agent-config.yaml" ] && cmp -s "$AC_TMP" "$DIR/agent-config.yaml"; then
+  rm -f "$AC_TMP"
+else
+  mv -f "$AC_TMP" "$DIR/agent-config.yaml"
+  CHANGED=1
+fi
+
+chmod 0600 "$DIR/install-config.yaml" "$DIR/agent-config.yaml"
+
+# A changed manifest invalidates the previous image build. Remove only the
+# installer's own record; auth/ and the Agent ISO are preserved deliberately.
+if [ "$CHANGED" -eq 1 ]; then
+  rm -f "$DIR/.openshift_install_state.json"
+fi
 `, dir, ic, ac)
 }
 

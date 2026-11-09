@@ -296,6 +296,11 @@ func TestBuildSetupScript_SecurityPermissions(t *testing.T) {
 		"chmod 0700 \"$DIR\"",
 		"chmod 0600 \"$DIR/install-config.yaml\" \"$DIR/agent-config.yaml\"",
 		"os.chmod(p, 0o600)",
+		// Credentials are backed up, not deleted.
+		"cp -a \"$DIR/auth\" \"$DIR/auth.backup\"",
+		// Manifests are replaced only when their content changes.
+		"cmp -s \"$IC_TMP\" \"$DIR/install-config.yaml\"",
+		"cmp -s \"$AC_TMP\" \"$DIR/agent-config.yaml\"",
 	}
 	for _, snippet := range expectedSnippets {
 		if !strings.Contains(script, snippet) {
@@ -303,12 +308,17 @@ func TestBuildSetupScript_SecurityPermissions(t *testing.T) {
 		}
 	}
 
-	// Negative assertions: ensure insecure modes are nowhere in the script
+	// Negative assertions: ensure insecure modes are nowhere in the script,
+	// and that no path can wipe the installer directory or its credentials.
 	forbiddenSnippets := []string{
 		"chmod 0755",
 		"chmod 0644",
 		"chmod 0666",
 		"chmod 0777",
+		`find "$DIR" -mindepth 1 -delete`,
+		`rm -rf "$DIR"`,
+		`rm -f "$DIR/agent.x86_64.iso"`,
+		`rm -f "$DIR/auth`,
 	}
 	for _, forbidden := range forbiddenSnippets {
 		if strings.Contains(script, forbidden) {
@@ -433,5 +443,132 @@ func TestSetupScript_LocalFilesystemExecution(t *testing.T) {
 	}
 	if perm := acStat.Mode().Perm(); perm != 0o600 {
 		t.Errorf("agent-config.yaml permissions = %04o; want 0600", perm)
+	}
+}
+
+// runSetupScriptLocally executes the setup script against a temporary install
+// directory and returns that directory. The pull-secret path is redirected to
+// a local test file so the script runs without a Host.
+func runSetupScriptLocally(t *testing.T, tempDir string, ic, ac string) string {
+	t.Helper()
+	installDir := filepath.Join(tempDir, "installer")
+	pullSecretFile := filepath.Join(tempDir, "pull-secret.json")
+	if err := os.WriteFile(pullSecretFile, []byte(`{"auths":{"cloud.openshift.com":{"auth":"dGVzdDp0ZXN0"}}}`), 0o600); err != nil {
+		t.Fatalf("failed to write test pull secret: %v", err)
+	}
+
+	mgr := &OpenShiftManager{}
+	script := mgr.BuildSetupScript(installDir, ic, ac)
+	script = strings.ReplaceAll(script, "/root/pull-secret.json", pullSecretFile)
+
+	cmd := exec.Command("bash", "-s")
+	cmd.Stdin = strings.NewReader(script)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("setup script local execution failed: %v (stderr: %s)", err, stderr.String())
+	}
+	return installDir
+}
+
+func TestSetupScript_PreservesAuthAndIso(t *testing.T) {
+	tempDir := t.TempDir()
+	installDir := filepath.Join(tempDir, "installer")
+	authDir := filepath.Join(installDir, "auth")
+	if err := os.MkdirAll(authDir, 0o700); err != nil {
+		t.Fatalf("create auth dir: %v", err)
+	}
+	kubeconfig := filepath.Join(authDir, "kubeconfig")
+	if err := os.WriteFile(kubeconfig, []byte("keep-me"), 0o600); err != nil {
+		t.Fatalf("write kubeconfig: %v", err)
+	}
+	iso := filepath.Join(installDir, "agent.x86_64.iso")
+	if err := os.WriteFile(iso, []byte("iso-bytes"), 0o600); err != nil {
+		t.Fatalf("write ISO: %v", err)
+	}
+
+	runSetupScriptLocally(t, tempDir, "apiVersion: v1\n", "apiVersion: v1alpha1\n")
+
+	if got, err := os.ReadFile(kubeconfig); err != nil || string(got) != "keep-me" {
+		t.Errorf("auth/kubeconfig was not preserved: content=%q err=%v", got, err)
+	}
+	backup := filepath.Join(installDir, "auth.backup", "kubeconfig")
+	if got, err := os.ReadFile(backup); err != nil || string(got) != "keep-me" {
+		t.Errorf("auth backup was not created: content=%q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(iso); err != nil || string(got) != "iso-bytes" {
+		t.Errorf("Agent ISO was not preserved: content=%q err=%v", got, err)
+	}
+}
+
+func TestSetupScript_DoesNotRewriteUnchangedManifests(t *testing.T) {
+	tempDir := t.TempDir()
+	installDir := runSetupScriptLocally(t, tempDir, "apiVersion: v1\n", "apiVersion: v1alpha1\n")
+
+	icPath := filepath.Join(installDir, "install-config.yaml")
+	before, err := os.Stat(icPath)
+	if err != nil {
+		t.Fatalf("stat install-config: %v", err)
+	}
+
+	runSetupScriptLocally(t, tempDir, "apiVersion: v1\n", "apiVersion: v1alpha1\n")
+
+	after, err := os.Stat(icPath)
+	if err != nil {
+		t.Fatalf("stat install-config after second run: %v", err)
+	}
+	if !os.SameFile(before, after) {
+		t.Error("install-config.yaml was rewritten even though its content did not change")
+	}
+	for _, leftover := range []string{".install-config.yaml.new", ".agent-config.yaml.new"} {
+		if _, err := os.Stat(filepath.Join(installDir, leftover)); !os.IsNotExist(err) {
+			t.Errorf("temporary manifest %s was left behind", leftover)
+		}
+	}
+}
+
+func TestBuildPersistStateScript(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "installer")
+	body := "preset: ha\nocpVersion: 4.22.0\nnodes: []\n"
+	script := BuildPersistStateScript(dir, body)
+
+	for _, want := range []string{
+		"umask 0077",
+		`STATE="$DIR/.virtlab-install-state.yaml"`,
+		`chmod 0600 "$TMP"`,
+		`mv -f "$TMP" "$STATE"`,
+		body,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("persist script should contain %q, got:\n%s", want, script)
+		}
+	}
+
+	cmd := exec.Command("bash", "-s")
+	cmd.Stdin = strings.NewReader(script)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("persist script local execution failed: %v (stderr: %s)", err, stderr.String())
+	}
+
+	statePath := filepath.Join(dir, ".virtlab-install-state.yaml")
+	info, err := os.Stat(statePath)
+	if err != nil {
+		t.Fatalf("stat persisted state: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("persisted state permissions = %04o; want 0600", perm)
+	}
+	data, err := os.ReadFile(statePath)
+	if err != nil {
+		t.Fatalf("read persisted state: %v", err)
+	}
+	parsed, err := ParseInstallState(string(data))
+	if err != nil {
+		t.Fatalf("parse persisted state: %v", err)
+	}
+	if parsed.Preset != "ha" || parsed.OCPVersion != "4.22.0" {
+		t.Errorf("persisted state = %+v, want preset ha version 4.22.0", parsed)
 	}
 }

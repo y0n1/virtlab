@@ -196,7 +196,10 @@ networks without state. Remove a remaining `<clusterName>` pool or
 - The capacity check counts the resources of an existing cluster as available
   before it compares free host capacity.
 - The OpenShift install has a resume guard. If the installer kubeconfig exists
-  and the cluster API answers `healthz` with `ok`, Phase 3 skips the install.
+  and the cluster API answers `healthz` with `ok`, `virtlab` compares the
+  applied preset, `ocpVersion`, and node inventory in
+  `<installDir>/.virtlab-install-state.yaml` with `config.yaml`. A match skips
+  the install. A mismatch fails the run before any file is changed.
 
 Never edit Pulumi stack state out of band. The stack state is the record that
 `virtlab down` uses to destroy resources.
