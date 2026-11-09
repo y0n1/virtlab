@@ -190,6 +190,8 @@ func ValidateStatic(c *Config) *ValidationResult {
 			res.AddError("network.cidr '%s' is invalid: %v", c.Network.CIDR, err)
 		} else if ipNet.IP.To4() == nil {
 			res.AddError("network.cidr '%s' must be an IPv4 subnet", c.Network.CIDR)
+		} else if err := validateCIDRCapacity(ipNet); err != nil {
+			res.AddError("network.cidr '%s' is too small for the network plan: %v", c.Network.CIDR, err)
 		}
 	}
 
@@ -209,6 +211,33 @@ func ValidateStatic(c *Config) *ValidationResult {
 	}
 
 	return res
+}
+
+// validateCIDRCapacity reports an error when ipNet cannot address the static
+// offsets reserved by the network plan: the node leases and the DHCP range.
+// The network and broadcast addresses are not usable hosts.
+func validateCIDRCapacity(ipNet *net.IPNet) error {
+	ones, bits := ipNet.Mask.Size()
+	hostBits := bits - ones
+
+	leaseBits := hostBitsForOffset(max(ControlPlaneLeaseOffset, WorkerLeaseOffset))
+	dhcpBits := hostBitsForOffset(DHCPEndOffset)
+	if hostBits >= leaseBits && hostBits >= dhcpBits {
+		return nil
+	}
+
+	return fmt.Errorf("needs at least a /%d subnet to hold node leases (offsets %d-%d) and the DHCP range (offsets %d-%d)",
+		bits-max(leaseBits, dhcpBits), ControlPlaneLeaseOffset, WorkerLeaseOffset, DHCPStartOffset, DHCPEndOffset)
+}
+
+// hostBitsForOffset returns the smallest number of host bits whose usable
+// range can address offset. The network and broadcast addresses are excluded.
+func hostBitsForOffset(offset int) int {
+	hostBits := 0
+	for (1<<uint(hostBits))-2 < offset {
+		hostBits++
+	}
+	return hostBits
 }
 
 // ValidateNetworkAddressing validates the resolved VIP plan against the network
