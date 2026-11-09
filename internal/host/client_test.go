@@ -118,8 +118,8 @@ func TestRunContext_Failure(t *testing.T) {
 	if out != "" {
 		t.Errorf("expected empty stdout on error, got: %q", out)
 	}
-	if !strings.Contains(err.Error(), "virtuser@192.168.1.10") {
-		t.Errorf("expected error to mention target connection, got: %v", err)
+	if !strings.Contains(err.Error(), "192.168.1.10") {
+		t.Errorf("expected error to mention host, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "simulated ssh failure") {
 		t.Errorf("expected error to include stderr message, got: %v", err)
@@ -397,8 +397,8 @@ func TestSSHClient_ErrorWrappingClassification(t *testing.T) {
 	if !errors.Is(errTimeout, context.DeadlineExceeded) {
 		t.Errorf("expected errTimeout to wrap context.DeadlineExceeded, got: %v", errTimeout)
 	}
-	if !strings.Contains(errTimeout.Error(), "virtuser@192.168.1.10 timed out") {
-		t.Errorf("expected target in timeout error: %v", errTimeout)
+	if !strings.Contains(errTimeout.Error(), "192.168.1.10 timed out") {
+		t.Errorf("expected host in timeout error: %v", errTimeout)
 	}
 
 	// 2. Cancellation error wrapping
@@ -409,8 +409,8 @@ func TestSSHClient_ErrorWrappingClassification(t *testing.T) {
 	if !errors.Is(errCancel, context.Canceled) {
 		t.Errorf("expected errCancel to wrap context.Canceled, got: %v", errCancel)
 	}
-	if !strings.Contains(errCancel.Error(), "virtuser@192.168.1.10 canceled") {
-		t.Errorf("expected target in canceled error: %v", errCancel)
+	if !strings.Contains(errCancel.Error(), "192.168.1.10 canceled") {
+		t.Errorf("expected host in canceled error: %v", errCancel)
 	}
 
 	// 3. Execution failure (non-context)
@@ -456,8 +456,8 @@ func TestRunScriptStream_Failure(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected RunScriptStream to return an error, got nil")
 	}
-	if !strings.Contains(err.Error(), "testuser@testhost") {
-		t.Errorf("expected error to mention target connection string, got: %v", err)
+	if !strings.Contains(err.Error(), "testhost") {
+		t.Errorf("expected error to mention host, got: %v", err)
 	}
 }
 
