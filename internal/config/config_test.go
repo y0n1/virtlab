@@ -100,6 +100,22 @@ network:
 	}
 }
 
+func TestLoadConfigFromBytes_RejectsUnknownSizingKey(t *testing.T) {
+	yamlData := `
+clusterName: "test-unknown-key"
+controlPlaneOverrides:
+  vcpus: 8
+  memoryMB: 16384
+`
+	_, err := LoadConfigFromBytes([]byte(yamlData))
+	if err == nil {
+		t.Fatal("expected an error for misspelled sizing key, got nil")
+	}
+	if !strings.Contains(err.Error(), "memoryMB") {
+		t.Fatalf("expected error to name memoryMB, got: %v", err)
+	}
+}
+
 func TestPresets(t *testing.T) {
 	tests := []struct {
 		preset     string

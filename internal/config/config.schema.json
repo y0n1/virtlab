@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/y0n1/virtlab/main/internal/config/config.schema.json",
+  "title": "virtlab configuration",
+  "description": "Declarative configuration for one virtlab lab. Save the file as config.yaml on the Workstation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["clusterName", "ocpVersion", "hostSsh"],
+  "properties": {
+    "clusterName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 32,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+      "description": "Lab and OpenShift cluster name. Must be a lower-case RFC 1123 label of 1-32 characters. virtlab uses this name for Host directories, libvirt objects, and DNS names."
+    },
+    "baseDomain": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^(?:[A-Za-z0-9](?:[-A-Za-z0-9]*[A-Za-z0-9])?\\.)+[A-Za-z0-9](?:[-A-Za-z0-9]*[A-Za-z0-9])?$",
+      "not": { "pattern": "\\.[0-9]+$" },
+      "default": "example.com",
+      "description": "Base DNS domain of the cluster. Must be a valid RFC 1123 domain with at least one dot. Each label is 1-63 characters. The top-level label must not be all numeric."
+    },
+    "ocpVersion": {
+      "type": "string",
+      "pattern": "^v?[0-9]+\\.[0-9]+(?:\\.[0-9]+)?(?:[-+][0-9A-Za-z.-]+)?$",
+      "description": "OpenShift version. Use MAJOR.MINOR.PATCH form, for example 4.22.0. This release supports Y-streams 4.20, 4.21, and 4.22.",
+      "examples": ["4.22.0"]
+    },
+    "preset": {
+      "type": "string",
+      "enum": ["sno", "compact", "ha"],
+      "default": "sno",
+      "description": "Cluster topology preset. sno uses one Control Plane Node. compact uses three Control Plane Nodes. ha uses three Control Plane Nodes and two Worker Nodes."
+    },
+    "hostSsh": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "publicKeyFile"],
+      "description": "SSH settings for the remote Host hypervisor.",
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Hostname or IP address of the Host. The Workstation must reach it over SSH."
+        },
+        "user": {
+          "type": "string",
+          "minLength": 1,
+          "default": "root",
+          "description": "SSH user on the Host. Default: root."
+        },
+        "publicKeyFile": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to the SSH public key on the Workstation. Tilde (~) expands to the home directory. The file must exist, be non-empty, and contain an OpenSSH public key. virtlab installs this key on the Host and injects it into the Nodes for console access."
+        }
+      }
+    },
+    "pullSecretFile": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Path to the Red Hat OpenShift pull secret on the Workstation. Tilde (~) expands to the home directory. If absent, virtlab tries to retrieve the pull secret with the ocm CLI. The file must be valid JSON with an auths section."
+    },
+    "network": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Settings for the isolated Lab Network.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$",
+          "description": "Name of the Lab Network. Default: <clusterName>-net. The libvirt bridge device name is managed automatically and cannot be set here."
+        },
+        "cidr": {
+          "type": "string",
+          "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])/(?:3[0-2]|[12]?[0-9])$",
+          "description": "IPv4 subnet for the Lab Network in CIDR notation. An explicit value gives stable VIPs. If absent, the Host allocates the lowest free 192.168.X.0/24 subnet, starting at X=100."
+        },
+        "gatewayIp": {
+          "not": {},
+          "description": "Not permitted. virtlab always derives the gateway as the first host address of network.cidr."
+        },
+        "apiVip": {
+          "$ref": "#/$defs/ipv4",
+          "description": "API VIP, published as api and api-int. Default: network address offset .5. Used by compact and ha only. In sno, the single Node serves the API."
+        },
+        "ingressVip": {
+          "$ref": "#/$defs/ipv4",
+          "description": "Ingress VIP for the cluster's own keepalived. Default: network address offset .6. Used by compact and ha only."
+        },
+        "ingressLbVip": {
+          "$ref": "#/$defs/ipv4",
+          "description": "Ingress Load Balancer VIP, the answer for *.apps.<clusterName>.<baseDomain>. Default: network address offset .7. Used by compact and ha only."
+        }
+      }
+    },
+    "controlPlaneOverrides": {
+      "$ref": "#/$defs/nodeSettings",
+      "description": "Optional per-node hardware overrides for every Control Plane Node. An absent field keeps the preset value."
+    },
+    "workerOverrides": {
+      "$ref": "#/$defs/nodeSettings",
+      "description": "Optional per-node hardware overrides for every Worker Node. Applies to ha only. In sno, virtlab ignores this object and prints a warning. In compact, it has no effect."
+    }
+  },
+  "$defs": {
+    "ipv4": {
+      "type": "string",
+      "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$"
+    },
+    "nodeSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vcpus": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of vCPUs per Node."
+        },
+        "memoryMib": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "RAM per Node in MiB. For example, 16384 is 16 GiB."
+        },
+        "diskGib": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Disk size per Node in GiB."
+        }
+      }
+    }
+  }
+}
