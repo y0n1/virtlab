@@ -58,5 +58,7 @@ index.
 | Document | Contents | Status |
 |---|---|---|
 | [`../UBIQUITOUS-LANGUAGE.md`](../UBIQUITOUS-LANGUAGE.md) | Formal domain terminology and ubiquitous language | available |
-| [`reference/architecture.md`](reference/architecture.md) | Topology diagram, what Pulumi owns, what stays manual | available |
+| [`../architecture.md`](../architecture.md) | Topology, resource ownership, lifecycle, and manual prerequisites | available |
+| [`../configuration.md`](../configuration.md) | Configuration keys, defaults, validation, and Lab Network allocation | available |
+| [`../state.md`](../state.md) | Pulumi, Workstation, and Host state stores and their ownership rules | available |
 | [`reference/known-unknowns.md`](reference/known-unknowns.md) | Deferred items and tracked gaps | available |

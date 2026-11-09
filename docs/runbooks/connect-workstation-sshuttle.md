@@ -1,7 +1,7 @@
 # SOP: Connect workstation via sshuttle
 
 > **Purpose:** establish a transparent TCP and split-DNS forwarding tunnel from the Workstation to the Host.
-> **Risk:** low — reversible local proxy; stopping the command or running `lab down` cleanly restores original routing.
+> **Risk:** low — reversible local proxy; stopping the command or running `virtlab down` cleanly restores original routing.
 > **Success:** `curl -sk https://192.168.100.1` or the cluster gateway answers across the tunnel.
 
 ## Prereqs
@@ -27,10 +27,10 @@
 
 2. **Launch the tunnel:**
 
-   Automatic (recommended via the composition CLI):
-   ```bash
-   make up
-   ```
+   Automatic (recommended): run `virtlab up`. Phase 4 configures split-DNS and
+   starts the Lab Tunnel. From a source checkout, `make up` builds
+   `bin/virtlab` and runs the same command.
+
    Or explicitly via `sshuttle`:
    ```bash
    sudo sshuttle --ns-hosts=192.168.100.1 --to-ns=192.168.100.1:53 -r root@hypervisor.example.com 192.168.100.0/24
@@ -61,11 +61,11 @@
 
 - **Never run `sshuttle --dns`** — `--dns` captures all workstation DNS from `/etc/resolv.conf`, which hijacks and blackholes regular internet and corporate VPN resolution. Always use targeted `--ns-hosts` and `--to-ns`.
 - **Never run `sshuttle 0/0`** — routing all workstation traffic hijacks regular internet and corporate connections. Only tunnel the lab CIDR (`192.168.100.0/24`).
-- **Never leave a detached background sshuttle running after deleting the lab** — run `make down` or `lab down` to terminate the process and restore state.
+- **Never leave a detached background sshuttle running after deleting the lab** — run `virtlab down` to terminate the process and restore state.
 
 ## Related
 
-- Architecture: [`reference/architecture.md`](reference/architecture.md)
+- Architecture: [`../architecture.md`](../architecture.md)
 - Domain language: [`../UBIQUITOUS-LANGUAGE.md`](../UBIQUITOUS-LANGUAGE.md)
 - Workstation DNS: [`configure-laptop-dns.md`](configure-laptop-dns.md)
 

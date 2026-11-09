@@ -8,7 +8,7 @@ import (
 
 // PrepareHost configures base packages, services, sysctl forwarding, and NetworkManager DNS on the Host.
 func (c *SSHClient) PrepareHost(cfg *config.Config) error {
-	fmt.Printf("\n[Host] Preparing remote hypervisor (%s)\n", c.Target())
+	fmt.Printf("\n[Host] Preparing remote hypervisor (%s)\n", c.Host)
 
 	const prepareScript = `
 set -euo pipefail

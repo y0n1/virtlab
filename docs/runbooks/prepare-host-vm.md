@@ -1,11 +1,11 @@
 # SOP: Prepare the host VM
 
 > **Purpose:** turn a fresh CentOS Stream 9 VM into a libvirt host that can
-> run the lab guest, serve NTP, and forward the tailnet subnet.
+> run the lab guest, serve NTP, and forward the Lab Network subnet.
 > **Risk:** medium — a missing package, disabled forwarding, or thin disk
 > fails `virtlab up` after the long install has already started.
 > **Success:** `libvirtd` and `chronyd` active, `net.ipv4.ip_forward` is `1`,
-> `virt-xml-validate` on PATH, and `/home/libvirt` meets the free-space floor.
+> and `/home/libvirt` meets the free-space floor.
 
 ## Prereqs
 - VMware (or equivalent) console access to create and snapshot the host VM.
@@ -42,7 +42,7 @@
 
    `Expected:` `enabled`, `active`, `chronyd serving UDP :123`.
 
-4. **Enable IPv4 forwarding** (the tailnet route needs it):
+4. **Enable IPv4 forwarding** (the Lab Network route needs it):
 
    ```bash
    printf 'net.ipv4.ip_forward=1\n' >/etc/sysctl.d/99-demo-forward.conf
@@ -52,15 +52,7 @@
 
    `Expected:` `1`.
 
-5. **Confirm the libvirt XML validator** used by the verify scripts:
-
-   ```bash
-   command -v virt-xml-validate
-   ```
-
-   `Expected:` a path.
-
-6. **Check disk headroom** for the guest disk, ISO and install tree:
+5. **Check disk headroom** for the guest disk, ISO and install tree:
 
    ```bash
    df -BG --output=avail /home/libvirt
@@ -69,15 +61,14 @@
    `Expected:` at least the total disk required by the selected preset
    (`internal/config/presets.go`).
 
-`nmstatectl`, `python3` and `qemu-nbd`/`lsblk`/`mount` are used by the
-bootstrap preflight and the automatic first-boot Ignition fix. A missing tool
-fails the preflight before the long install, never after.
+Phase 1 of `virtlab up` installs the same package set and enables the same
+services. This SOP is the manual preflight and the fallback when that step
+fails.
 
 ## Verify
 
 - `systemctl is-active libvirtd chronyd` → `active` twice.
 - `sysctl -n net.ipv4.ip_forward` → `1`.
-- `command -v virt-xml-validate` → non-empty.
 - `df -BG --output=avail /home/libvirt` → at or above the floor.
 
 ## Troubleshooting
@@ -86,14 +77,13 @@ fails the preflight before the long install, never after.
   on a nested VM confirm KVM is exposed to the guest.
 - **`chronyd` active but `:123` not listening** → check for a conflicting NTP
   daemon; the guest uses this host bridge as its additional NTP source.
-- **`virt-xml-validate` missing** → `dnf install -y libvirt-client`.
 - **`/home/libvirt` below the floor** → grow `/home` or move the pool before
   bringing up the stack; a mid-install ENOSPC does not resume cleanly.
 
 ## Never do
 
-- **Never disable IPv4 forwarding** — the laptop reaches the guest only
-  through the host's advertised route (owner decision: manual step).
+- **Never disable IPv4 forwarding** — the Workstation reaches the Guests only
+  through the Host's forwarding (owner decision: manual step).
 - **Never run `virtlab up` below the free-space floor** — the volume and ISO
   are written before the install can fail.
 - **Never hand-edit the libvirt network or pool the stack owns** — `up`

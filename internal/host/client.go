@@ -89,24 +89,24 @@ func (c *SSHClient) wrapError(ctx context.Context, op string, err error, stderr 
 	if ctx != nil && ctx.Err() != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			if trimmedErr != "" {
-				return fmt.Errorf("ssh %s on %s timed out: %w (stderr: %s)", op, c.Target(), ctx.Err(), trimmedErr)
+				return fmt.Errorf("ssh %s on %s timed out: %w (stderr: %s)", op, c.Host, ctx.Err(), trimmedErr)
 			}
-			return fmt.Errorf("ssh %s on %s timed out: %w", op, c.Target(), ctx.Err())
+			return fmt.Errorf("ssh %s on %s timed out: %w", op, c.Host, ctx.Err())
 		}
 		if errors.Is(ctx.Err(), context.Canceled) {
 			if trimmedErr != "" {
-				return fmt.Errorf("ssh %s on %s canceled: %w (stderr: %s)", op, c.Target(), ctx.Err(), trimmedErr)
+				return fmt.Errorf("ssh %s on %s canceled: %w (stderr: %s)", op, c.Host, ctx.Err(), trimmedErr)
 			}
-			return fmt.Errorf("ssh %s on %s canceled: %w", op, c.Target(), ctx.Err())
+			return fmt.Errorf("ssh %s on %s canceled: %w", op, c.Host, ctx.Err())
 		}
 	}
-	prefix := fmt.Sprintf("ssh %s", c.Target())
+	prefix := fmt.Sprintf("ssh %s", c.Host)
 	if op == "script" {
-		prefix = fmt.Sprintf("ssh script on %s", c.Target())
+		prefix = fmt.Sprintf("ssh script on %s", c.Host)
 	} else if op == "streaming script" {
-		prefix = fmt.Sprintf("ssh streaming script on %s", c.Target())
+		prefix = fmt.Sprintf("ssh streaming script on %s", c.Host)
 	} else if strings.HasPrefix(op, "streaming ") {
-		prefix = fmt.Sprintf("ssh %s on %s", op, c.Target())
+		prefix = fmt.Sprintf("ssh %s on %s", op, c.Host)
 	}
 	if trimmedErr != "" {
 		return fmt.Errorf("%s failed: %w (stderr: %s)", prefix, err, trimmedErr)

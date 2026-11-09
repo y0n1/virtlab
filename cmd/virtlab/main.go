@@ -188,7 +188,7 @@ func runUp(ctx context.Context, args []string) error {
 		fmt.Printf("Warning: failed to inspect existing host labs (%v); proceeding anyway\n", err)
 	} else if len(conflicts) > 0 {
 		return fmt.Errorf("co-existing lab '%s' detected on host '%s' (running multiple concurrent labs is not supported; run 'virtlab down' on '%s' before reprovisioning)",
-			conflicts[0], h.Client.Target(), conflicts[0])
+			conflicts[0], h.Client.Host, conflicts[0])
 	}
 
 	// platform is immutable after install: fail before mutating host state.

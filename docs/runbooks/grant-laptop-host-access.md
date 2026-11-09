@@ -2,8 +2,7 @@
 
 > **Purpose:** let the laptop run `virsh` against the host over SSH as root
 > without a password prompt.
-> **Risk:** low — no lab state changes; a failure only blocks Pulumi and the
-> verify scripts.
+> **Risk:** low — no lab state changes; a failure only blocks provisioning.
 > **Success:** `virsh -c qemu+ssh://root@<host>/system list --all` runs from
 > the laptop and prints the host's domain table.
 
@@ -29,13 +28,26 @@
 
    `Expected:` libvirt/hypervisor versions, no password prompt.
 
-3. **Confirm the stack targets the same host and user:**
+   `virtlab` connects with `StrictHostKeyChecking=accept-new`. It saves an
+   unknown host key at the first connection. It rejects a changed key after
+   that.
+
+   On an untrusted network, make one manual SSH connection before the first
+   `virtlab up`. Compare the fingerprint with the value shown on the host
+   console or provider panel:
 
    ```bash
-   grep 'libvirt:uri' config.yaml
+   ssh-keyscan -t ed25519 <host> | ssh-keygen -lf -
    ```
 
-   `Expected:` a `qemu+ssh://root@<host>/system` URI matching step 2.
+3. **Confirm `config.yaml` targets the same user:**
+
+   ```bash
+   grep -A3 '^hostSsh:' config.yaml
+   ```
+
+   `Expected:` `host` and `user` matching step 2. `virtlab` builds the
+   `qemu+ssh://<user>@<host>/system` URI from these values at run time.
 
 4. **Reach libvirt from the laptop:**
 
@@ -45,8 +57,8 @@
 
    `Expected:` the domain table (empty, or `demo` after a bring-up).
 
-Either the LAN name/hosts entry or the tailnet name is acceptable; the repo
-only requires that `root@<host>` resolves and the key is authorized.
+Either the LAN name or an SSH config alias is acceptable; the repo only
+requires that `<user>@<host>` resolves and the key is authorized.
 
 ## Verify
 
@@ -62,8 +74,8 @@ only requires that `root@<host>` resolves and the key is authorized.
   entry with `ssh-keygen -R <host>` and re-accept it.
 - **`virsh: failed to connect to the hypervisor`** → SSH works but libvirtd
   does not: `systemctl status libvirtd` on the host.
-- **Name does not resolve** → use the tailnet name or add a hosts entry; both
-  are operator-specific.
+- **Name does not resolve** → use an SSH config alias or add a hosts entry;
+  both are operator-specific.
 
 ## Never do
 
@@ -75,6 +87,6 @@ only requires that `root@<host>` resolves and the key is authorized.
 
 ## Related
 
-- Provider URI and host pair: `config.yaml` (`libvirt:uri` is derived from
-  `hostSsh`).
+- Provider URI: derived from `hostSsh` at run time by
+  `internal/infrastructure/infrastructure.go`. It is not a `config.yaml` key.
 - Next: [`install-host-tools.md`](install-host-tools.md) and [`prepare-laptop.md`](prepare-laptop.md).

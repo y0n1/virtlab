@@ -84,7 +84,7 @@
 ## Related
 
 - Configuration schema and defaults: `examples/config.example.yaml`,
-  `internal/config/config.go`.
+  `internal/config/config.schema.json`, and `internal/config/config.go`.
 - Backend selection: `internal/infrastructure/infrastructure.go`
   (`EnsurePulumiBackend`).
 - Next: [`bring-up-lab.md`](bring-up-lab.md).

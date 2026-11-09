@@ -1,0 +1,35 @@
+name: Docs
+
+# ci.yml ignores docs-only pull requests, so this workflow runs on every pull
+# request. It catches both a docs change that names a missing file and a code
+# change that deletes a file or Make target the docs still reference.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  docs-check:
+    name: Docs consistency
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+          check-latest: true
+          cache: true
+
+      - name: Check documented paths and commands
+        run: make docs-check

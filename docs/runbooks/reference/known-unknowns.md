@@ -9,6 +9,5 @@ out of scope or not yet proven.
   compromised and rotate it.
 - Day-2 node addition to a running cluster is not automated yet; compact and HA
   presets already provision multiple nodes.
-- The fresh-install automation (disk-write plateau plus automatic Ignition fix)
-  is implemented and offline-simulated; a clean end-to-end run and the
-  config-change re-fire remain to be proven.
+- A clean end-to-end fresh install, and the re-fire after a configuration
+  change, remain to be proven against a real Host.
