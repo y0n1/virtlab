@@ -75,7 +75,6 @@ only requires that `root@<host>` resolves and the key is authorized.
 
 ## Related
 
-- Provider URI and host pair: `config.yaml` (`libvirt:uri`,
-  `lab.hostSSH`).
-- Host: `config.yaml` (`lab.hostSSH`, `libvirt:uri`).
+- Provider URI and host pair: `config.yaml` (`libvirt:uri` is derived from
+  `hostSsh`).
 - Next: [`install-host-tools.md`](install-host-tools.md) and [`prepare-laptop.md`](prepare-laptop.md).

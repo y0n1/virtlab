@@ -58,6 +58,11 @@ func EnsurePulumiBackend() {
 	_ = os.Setenv("PULUMI_BACKEND_URL", "file://"+filepath.ToSlash(home))
 }
 
+// pulumiProjectName is the fixed Pulumi project name for the inline program.
+// The lab is driven exclusively through the Automation API, so project identity
+// is a constant rather than a discovered Pulumi.yaml manifest.
+const pulumiProjectName = "virtlab"
+
 // Infrastructure manages Phase 2 Lab Setup: storage pool, network, and guest VMs.
 type Infrastructure struct {
 	Config      *config.Config
@@ -73,23 +78,8 @@ func New(cfg *config.Config, bridgeName string) *Infrastructure {
 	return &Infrastructure{
 		Config:      cfg,
 		BridgeName:  bridgeName,
-		ProjectName: LoadProjectName(),
+		ProjectName: pulumiProjectName,
 	}
-}
-
-// LoadProjectName discovers the closest Pulumi project manifest (Pulumi.yaml)
-// and returns its project name, falling back to "virtlab" if not found or empty.
-func LoadProjectName() string {
-	const defaultProject = "virtlab"
-	projPath, err := workspace.DetectProjectPath()
-	if err != nil {
-		return defaultProject
-	}
-	proj, err := workspace.LoadProject(projPath)
-	if err != nil || proj.Name == "" {
-		return defaultProject
-	}
-	return string(proj.Name)
 }
 
 // InlineProgram defines the Pulumi program for all infrastructure resources.
@@ -128,7 +118,7 @@ func (infra *Infrastructure) Provision(ctx context.Context) error {
 	stackName := infra.Config.ClusterName
 	projectName := infra.ProjectName
 	if projectName == "" {
-		projectName = LoadProjectName()
+		projectName = pulumiProjectName
 	}
 
 	EnsurePulumiPassphrase()
@@ -164,7 +154,7 @@ func (infra *Infrastructure) Teardown(ctx context.Context) error {
 	stackName := infra.Config.ClusterName
 	projectName := infra.ProjectName
 	if projectName == "" {
-		projectName = LoadProjectName()
+		projectName = pulumiProjectName
 	}
 
 	EnsurePulumiPassphrase()

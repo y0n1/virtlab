@@ -46,12 +46,12 @@ no HAProxy: `api`/`api-int`/`*.apps` all resolve to that node's lease.
 
 ## What the Lab Automation owns
 
-`lab up` (or `make up`) creates and reconciles these resources:
+`virtlab up` (or `make up`) creates and reconciles these resources:
 
 | Resource | Domain Package | Key values |
 |---|---|---|
-| libvirt network | `internal/infrastructure` (`network.go`) | `demo-net`, bridge `virbr-lab0`, CIDR `192.168.100.0/24`, gateway `192.168.100.1`, DNS zone `example.com`, static lease `52:54:00:00:00:01` → `192.168.100.10` |
-| guest VM + pool + disk | `internal/infrastructure` (`guest.go`, `storagepool.go`) | domain `demo`, pool `demo` at `/home/libvirt/demo/`, 500 GiB qcow2, serial log `/home/libvirt/demo/serial.log` |
+| libvirt network | `internal/infrastructure` (`network.go`) | `<cluster>-net`, bridge `virbr-lab0`, CIDR auto-allocated (example `192.168.100.0/24`), gateway `.1`, DNS zone `<baseDomain>`, static leases `master-N` → `.10+`, `worker-N` → `.20+` |
+| guest VM + pool + disk | `internal/infrastructure` (`guest.go`, `storagepool.go`) | domains `<cluster>-<node>`, volumes `<cluster>-<node>.qcow2`, pool `<cluster>` at `/home/libvirt/<cluster>/pool`, serial log `/home/libvirt/<cluster>/logs/<node>-serial.log` |
 | host DNS bridge | `internal/host` (`prepare.go`) | NetworkManager dnsmasq forwarding zone to libvirt gateway |
 | cluster VIPs | `internal/config` (`ResolveVIPs`), `internal/infrastructure` (`network.go`) | `api`/`api-int` → API VIP, `*.apps` → Ingress LB VIP; `platform: baremetal` with `provisioningNetwork: Disabled` for `compact`/`ha`, `platform: none` for `sno` |
 | host ingress LB | `internal/host` (`ingresslb.go`), `internal/host/prepare.go` | `haproxy` package, ports `80/tcp` `443/tcp` in the `libvirt` firewalld zone, VIP on the bridge, `/etc/virtlab/<cluster>-haproxy.cfg`, unit `virtlab-<cluster>-haproxy` |

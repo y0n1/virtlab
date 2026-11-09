@@ -1,132 +1,94 @@
 # SOP: Bring up the lab
 
-> **Purpose:** create or update the Pulumi stack so the guest boots and the
-> single-node cluster installs.
-> **Risk:** high — an `up` against the wrong stack or config builds or
-> reconciles the wrong lab; the install writes a large disk.
-> **Success:** `pulumi up` completes and every `make test` acceptance
-> target passes.
+> **Purpose:** provision or reconcile the lab (storage pool, network, guest
+> VMs, OpenShift install) from `config.yaml` with one command.
+> **Risk:** high — creates or updates a running cluster and a large disk; a
+> wrong `clusterName` or host targets the wrong lab.
+> **Success:** `virtlab up` exits 0 and prints the access banner with the
+> console URL, kubeconfig path, and kubeadmin password path.
 
 ## Prereqs
-- [`prepare-host-vm.md`](prepare-host-vm.md),
-  [`connect-workstation-sshuttle.md`](connect-workstation-sshuttle.md),
-  [`grant-laptop-host-access.md`](grant-laptop-host-access.md),
-  [`install-host-tools.md`](install-host-tools.md),
-  [`store-pull-secret.md`](store-pull-secret.md) complete.
-- [`prepare-laptop.md`](prepare-laptop.md) and [`configure-laptop-dns.md`](configure-laptop-dns.md) complete.
+- [`prepare-laptop.md`](prepare-laptop.md) complete (`config.yaml` valid).
+- Host prepared and reachable: [`prepare-host-vm.md`](prepare-host-vm.md),
+  [`grant-laptop-host-access.md`](grant-laptop-host-access.md), and
+  [`store-pull-secret.md`](store-pull-secret.md).
 - A VMware snapshot of the host VM — the rollback if the install goes wrong.
 
 ## Steps
 
 1. **Snapshot the host VM** in VMware and note the snapshot name.
 
-   `Expected:` the snapshot completes before any stack command runs.
+   `Expected:` the snapshot completes before any lab command runs.
 
-2. **Run the offline checks** from the repo root:
+2. **Run the offline checks** (source checkout only):
 
    ```bash
    make check
    ```
 
-   `Expected:` build, vet, tests, goldens and self-checks pass; no host access
-   is needed.
+   `Expected:` build, vet, and unit tests pass; no host access is needed.
 
-3. **Review the plan:**
-
-   ```bash
-   pulumi preview --stack demo
-   ```
-
-   `Expected:` the network, the guest (pool, volume, domain), the DNS bridge
-   and the cluster resources. Stop if it proposes deleting anything
-   unexpected.
-
-4. **Apply:**
+3. **Apply the configuration** from the directory holding `config.yaml`:
 
    ```bash
-   pulumi up --stack demo
+   virtlab up
    ```
 
-   `Expected:` the image build, boot, install and smoke commands succeed; the
-   stack exports `apiUrl`, `consoleUrl`, `installDir`, `kubeconfigPath`,
-   `kubeadminPasswordPath`, `networkBridge` and `serialLogPath`.
+   `Expected:` four phases run in order:
 
-The module is resumable: if the update is interrupted, the next `up` re-runs
-the command and the resume guard adopts an already installed cluster
-(kubeconfig plus `:6443/healthz` → smoke only) instead of reinstalling it.
+   - Phase 1 verifies `ssh`/`go`, installs missing `sshuttle`/`pulumi`/`ocm`,
+     prepares the host, and installs matching `openshift-install`/`oc`;
+   - Phase 2 creates the storage pool, network, and guest VMs;
+   - Phase 3 builds the Agent ISO, boots the nodes, and waits for install;
+   - Phase 4 configures split-DNS and sshuttle, probes DNS/API/console, and
+     writes `~/.kube/config.<clusterName>` and
+     `~/.kube/kubeadmin-password.<clusterName>`.
 
-5. **Run the acceptance gate:**
+   Use `virtlab up -y` to skip confirmation prompts.
+
+4. **Confirm the lab state:**
 
    ```bash
-   make test
+   virtlab status
    ```
 
-   `Expected:` all four pass. `verify-bootstrap` runs laptop rows; without the
-   resolver from [`configure-laptop-dns.md`](configure-laptop-dns.md) those rows print `SKIP` loudly, and
-   a skipped row is not a pass.
+   `Expected:` tunnel active, host reachable, kubeconfig and kubeadmin
+   password found.
 
 ## Verify
 
-- `pulumi stack output apiUrl --stack demo` → `https://api.demo.example.com:6443`.
-- `pulumi stack output consoleUrl --stack demo` → `https://console-openshift-console.apps.demo.example.com`.
-- `make test` → node Ready, all cluster operators available,
-  `sda` source-less, ISO retained, host and laptop API `ok`, console `200/302`.
-- `make test` → no pull-secret bytes in the stack export.
-
-### VIP and ingress checks (`compact` / `ha` only)
-
-`sno` uses none of these: `api`/`api-int`/`*.apps` resolve to the node lease and
-there is no host load balancer.
-
-On the Host, after Phase 2:
-
-```bash
-ip -4 addr show <bridge> | grep -F 192.168.100.7      # Ingress LB VIP present
-cat /sys/class/net/<bridge>/bridge/multicast_snooping # → 0 (VRRP can cross)
-systemctl is-active virtlab-<cluster>-haproxy         # → active
-firewall-cmd --zone=libvirt --list-ports              # → includes 80/tcp 443/tcp
-```
-
-On the Workstation, after Phase 3:
-
-```bash
-export KUBECONFIG=~/.kube/config.<cluster>
-oc get infrastructure cluster -o jsonpath='{.status.platform}' # → BareMetal
-oc get ingresscontroller default -n openshift-ingress-operator \
-  -o jsonpath='{.spec.replicas}'                               # → one per ingress node
-```
-
-`platform` is immutable: a cluster installed as `None` cannot be upgraded to
-`BareMetal` in place. If `virtlab` reports a platform mismatch, run
-`virtlab down` and then `virtlab up` — see
-[`reinstall-cluster.md`](reinstall-cluster.md).
+- `virtlab up` → final banner `🎉 LAB VERIFICATION SUCCESSFUL!`.
+- `export KUBECONFIG=~/.kube/config.<clusterName>` then `oc get nodes` →
+  every node `Ready`.
+- `oc get clusterversion` → the configured `ocpVersion`.
 
 ## Troubleshooting
 
-- **`pulumi preview` shows deletions on a fresh stack** → wrong stack or a
-  stale state; stop and inspect `pulumi stack --show-urns`.
-- **`up` interrupted** → re-run step 4; artifacts under the install directory
-  are reused.
-- **A `verify-*` row prints `SKIP`** → the prerequisite it needs is missing;
-  fix it, never read `SKIP` as success.
-- **`up` failed during image or bootstrap** → [`recover-failed-install.md`](recover-failed-install.md).
-- **`up` failed after the guest disk was created** → the resume path still
-  applies; do not destroy without a snapshot.
+- **`platform is immutable after install`** → the live cluster was installed
+  with a different preset; run `virtlab down` then `virtlab up`
+  ([`reinstall-cluster.md`](reinstall-cluster.md)).
+- **`co-existing lab ... detected`** → another lab is active on the host or
+  workstation; tear it down first.
+- **Phase 3 fails during image build or bootstrap** →
+  [`recover-failed-install.md`](recover-failed-install.md).
+- **`up` skips installation because the cluster is already healthy** → the
+  resume guard adopted it; this is expected. A healthy cluster is not
+  reinstalled when config or version changes.
+- **A re-run after an interruption** → install artifacts are reused; re-run
+  `virtlab up`.
 
 ## Never do
 
-- **Never run `pulumi destroy` unless you mean to delete the running cluster**
-  — the disk is a Pulumi resource and destroy removes it (see
-  [`teardown-lab.md`](teardown-lab.md)).
-- **Never run `pulumi refresh` while the cluster is up** — `guest-vm` declares
-  the domain stopped, so refresh plus `up` powers the VM off.
-- **Never `virsh destroy` the guest during an update** unless recovering;
-  use the documented resume path.
-- **Never `up` without the host snapshot** — it is the only rollback.
+- **Never run `virtlab down` without a host snapshot** — it deletes the
+  cluster disk and there is no undo.
+- **Never hand-run `openshift-install` or edit rendered manifests on the
+  host** — `virtlab up` owns them.
+- **Never modify Pulumi stack state out of band** — the Automation API state
+  is the source of truth.
 
 ## Related
 
-- Program and outputs: `main.go`.
-- Stack configuration: `config.yaml`.
-- Acceptance harness: `Makefile`, `Makefile`.
-- Recovery: [`recover-failed-install.md`](recover-failed-install.md), [`reinstall-cluster.md`](reinstall-cluster.md).
+- Command flow and phases: `cmd/virtlab/main.go`.
+- Configuration: `config.yaml`, `examples/config.example.yaml`.
+- Recovery: [`recover-failed-install.md`](recover-failed-install.md),
+  [`reinstall-cluster.md`](reinstall-cluster.md).

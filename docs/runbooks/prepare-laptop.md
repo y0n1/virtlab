@@ -1,116 +1,90 @@
 # SOP: Prepare the laptop
 
-> **Purpose:** install the Pulumi and Go toolchains, log in to the local
-> Pulumi backend, and select the lab stack on the operator's laptop.
-> **Risk:** low — no lab state changes; a wrong stack or backend only blocks
-> preview and up.
-> **Success:** `pulumi version` and `go version` answer, `pulumi whoami`
-> reports the local user, and `demo` is selected on the `file://~`
-> backend.
+> **Purpose:** make the laptop ready to run `virtlab`: user toolchains
+> present, `config.yaml` valid, and state encryption chosen.
+> **Risk:** low — no lab state changes; a wrong config only fails the next
+> `up`.
+> **Success:** `ssh -V` and `go version` answer, and `virtlab status` loads
+> `config.yaml` without configuration errors.
 
 ## Prereqs
-- A laptop with shell access and this repository checked out.
-- User-managed dependencies: `ssh` (OpenSSH >= 8.0) and `go` (>= 1.26).
-- Tool-managed dependencies: `sshuttle`, `pulumi`, `ocm` (auto-installed on demand and tracked in `~/.local/state/virtlab/state.json`).
-- A passphrase for the local state secrets provider, stored in your password
-  manager. Never put it in the repository or in `config.yaml`.
+- Shell access to the laptop with this repository checked out.
+- A pull secret file, or an authenticated `ocm` CLI (see
+  [`store-pull-secret.md`](store-pull-secret.md)).
+- `sshuttle`, `pulumi`, and `ocm` are installed automatically by `virtlab up`
+  and tracked in `~/.local/state/virtlab/state.json`.
 
 ## Steps
 
-1. **Verify user-managed toolchains:**
+1. **Verify the user-managed toolchains:**
 
    ```bash
    ssh -V
    go version
    ```
 
-   `Expected:` OpenSSH >= 8.0 and Go >= 1.26. Missing or outdated binaries must
-   be installed by the user. Note that `virtlab` auto-installs `sshuttle`,
-   `pulumi`, and `ocm` if missing, recording them in `~/.local/state/virtlab/state.json`.
+   `Expected:` OpenSSH >= 8.0 and Go >= 1.22. `go.mod` pins Go 1.26.6 for
+   source builds.
 
-2. **Log in to the local backend:**
+2. **Create the lab configuration:**
 
    ```bash
-   pulumi login --local
+   cp examples/config.example.yaml config.yaml
    ```
 
-   `Expected:` exit 0; `pulumi whoami` prints your OS user.
+   Edit `clusterName`, `baseDomain`, `ocpVersion`, `hostSsh`, and `preset`.
+   `config.yaml` is gitignored; never commit it.
 
-   `--local` is shorthand for `file://~`: state lives under `~/.pulumi` on
-   this laptop. There is no shared or cloud state for this lab.
-
-3. **Export the stack passphrase** for the current shell:
+3. **Choose the state encryption passphrase** (optional, recommended):
 
    ```bash
    export PULUMI_CONFIG_PASSPHRASE='<passphrase-from-your-password-manager>'
    ```
 
-   `Expected:` no output. The local backend defaults to the passphrase secrets
-   provider, so Pulumi asks for this on commands that read or write state; the
-   environment variable keeps unattended commands from prompting. Add the
-   export to your shell profile to have it in every session.
+   `Expected:` no output. When unset, `virtlab` uses an empty passphrase so
+   unattended runs never prompt; that leaves local stack state unencrypted.
+   Set it before the first `virtlab up`; changing it later makes existing
+   stack state unreadable.
 
-4. **Select or create the lab stack** (from the repo root):
-
-   ```bash
-   pulumi stack select demo || pulumi stack init demo
-   ```
-
-   `Expected:` the stack is selected on the local backend.
-
-5. **Confirm the stack sees the committed configuration:**
+4. **Validate the configuration:**
 
    ```bash
-   pulumi config --stack demo | head
+   virtlab status
    ```
 
-   `Expected:` values from `config.yaml` (for example
-   `libvirt:uri` and `lab:network:bridge`).
-
-6. **Read the pinned Go toolchain** rather than assuming a version:
-
-   ```bash
-   grep '^go ' go.mod
-   ```
-
-   `Expected:` a version your installed Go satisfies (Go >= 1.26).
+   `Expected:` the lab banner and status lines, with no configuration error.
+   Host reachability may report unreachable until the host SOPs are complete.
 
 ## Verify
 
-- `pulumi whoami` → your OS user (local backend, not an organization).
-- `pulumi stack` → `demo`, with state showing `current`.
-- `go build ./...` from the repo root → exit 0.
+- `ssh -V` → OpenSSH >= 8.0.
+- `go version` → Go >= 1.22.
+- `virtlab status` → prints `Status for Lab '<clusterName>'` without a
+  configuration error.
 
 ## Troubleshooting
 
-- **`OpenSSH version < 8.0` or missing `ssh`** → install or upgrade OpenSSH.
-- **`Go version < 1.26` or missing `go`** → install or upgrade Go from https://go.dev/dl/.
-- **`pulumi: command not found`** → `virtlab` auto-installs it on `up`, or install manually via Homebrew (`brew install pulumi`) or the official Pulumi installation script.
-- **`no stack named 'demo'`** → confirm `pulumi login --local`, then run
-  `pulumi stack init demo` from the repo root.
-- **A passphrase prompt in an unattended command** → export
-  `PULUMI_CONFIG_PASSPHRASE` in that shell.
-- **`pulumi stack ls` shows a cloud organization** → you are on the wrong
-  backend; re-run `pulumi login --local` (login is per-user and global).
-- **`pulumi config` shows missing keys** → you are in the wrong directory or
-  stack; re-run step 4 from the repo root.
+- **`config file 'config.yaml' not found`** → repeat step 2. With the default
+  path, `virtlab` also falls back to `config.local.yaml`.
+- **`configuration errors in 'config.yaml'`** → fix the entries named in the
+  summary; the schema is `examples/config.example.yaml`.
+- **`go` missing or too old** → install Go >= 1.22 from https://go.dev/dl/.
+- **`ssh` missing or too old** → install OpenSSH >= 8.0.
+- **`pulumi: command not found`** → `virtlab up` installs it during Phase 1.
 
 ## Never do
 
-- **Never commit `~/.pulumi` state or the passphrase** — state is local to
-  this laptop; back it up securely, never through the repo.
+- **Never commit `config.yaml`, `~/.pulumi` state, or the passphrase** — state
+  and secrets stay on the laptop.
 - **Never run bare `pulumi login`** — it switches this user to a cloud
-  backend, which this lab does not use.
-- **Never `pulumi stack rm demo`** — it deletes the stack state, not the
-  lab, and Pulumi loses track of every resource.
-- **Never add secrets to `config.yaml`** — the file is committed by
-  design; secrets live on the host.
-- **Never initialize a second stack casually** — an `up` against the wrong
-  stack tries to build a second lab.
+  backend; `virtlab` selects the local `file://<home>` backend itself when
+  none is configured.
+- **Never add secrets to `config.yaml`** — the pull secret lives on the host.
 
 ## Related
 
-- Project and stack: `Pulumi.yaml`, `config.yaml`.
-- Local state and secrets backend: `~/.pulumi` (not in the repo).
-- Toolchain: `go.mod`.
-- Next: [`configure-laptop-dns.md`](configure-laptop-dns.md).
+- Configuration schema and defaults: `examples/config.example.yaml`,
+  `internal/config/config.go`.
+- Backend selection: `internal/infrastructure/infrastructure.go`
+  (`EnsurePulumiBackend`).
+- Next: [`bring-up-lab.md`](bring-up-lab.md).

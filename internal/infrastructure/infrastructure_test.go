@@ -15,34 +15,11 @@ import (
 	"github.com/y0n1/virtlab/internal/config"
 )
 
-func TestLoadProjectName(t *testing.T) {
-	name := LoadProjectName()
-	if name != "virtlab" {
-		t.Errorf("expected 'virtlab', got '%s'", name)
-	}
-}
-
 func TestNew_InitializesProjectName(t *testing.T) {
 	cfg := &config.Config{ClusterName: "test-cluster"}
 	infra := New(cfg, "virbr-test")
 	if infra.ProjectName != "virtlab" {
 		t.Errorf("expected infra.ProjectName to be 'virtlab', got '%s'", infra.ProjectName)
-	}
-}
-
-func TestWorkspaceDetectProject(t *testing.T) {
-	projPath, err := workspace.DetectProjectPath()
-	if err != nil {
-		t.Fatalf("DetectProjectPath failed: %v", err)
-	}
-	t.Logf("Detected project path: %s", projPath)
-
-	proj, err := workspace.LoadProject(projPath)
-	if err != nil {
-		t.Fatalf("LoadProject failed: %v", err)
-	}
-	if string(proj.Name) != "virtlab" {
-		t.Errorf("expected project name 'virtlab', got '%s'", proj.Name)
 	}
 }
 

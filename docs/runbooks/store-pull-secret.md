@@ -74,7 +74,7 @@ the path appears in configuration.
 
 ## Related
 
-- Path and injection: `config.yaml`
-  (`lab.cluster.pullSecretPath`), `internal/cluster/openshift.go`.
+- Path and injection: `config.yaml` (`pullSecretFile`),
+  `internal/workstation/pullsecret.go`.
 - Preflight: `internal/cluster/openshift.go`.
 - Ignore rule: `.gitignore` (`**/pull-secret.json`).

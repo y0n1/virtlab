@@ -3,7 +3,7 @@
 > **Purpose:** turn a fresh CentOS Stream 9 VM into a libvirt host that can
 > run the lab guest, serve NTP, and forward the tailnet subnet.
 > **Risk:** medium — a missing package, disabled forwarding, or thin disk
-> fails `pulumi up` after the long install has already started.
+> fails `virtlab up` after the long install has already started.
 > **Success:** `libvirtd` and `chronyd` active, `net.ipv4.ip_forward` is `1`,
 > `virt-xml-validate` on PATH, and `/home/libvirt` meets the free-space floor.
 
@@ -94,15 +94,15 @@ fails the preflight before the long install, never after.
 
 - **Never disable IPv4 forwarding** — the laptop reaches the guest only
   through the host's advertised route (owner decision: manual step).
-- **Never start the stack below the free-space floor** — the volume and ISO
+- **Never run `virtlab up` below the free-space floor** — the volume and ISO
   are written before the install can fail.
 - **Never hand-edit the libvirt network or pool the stack owns** — `up`
   reconciles them and a divergent object blocks adoption.
 
 ## Related
 
-- Values and defaults: `config.yaml` (`lab.vm.*`,
-  `lab.cluster.installDir`) and `internal/config/config.go`.
+- Values and defaults: `config.yaml` (`preset`, `controlPlaneOverrides`,
+  `workerOverrides`) and `internal/config/presets.go`.
 - Preflight tool list: `internal/cluster/openshift.go`.
 - Free-space floor: the selected preset's total disk (`internal/config/presets.go`).
 - Next: [`grant-laptop-host-access.md`](grant-laptop-host-access.md).

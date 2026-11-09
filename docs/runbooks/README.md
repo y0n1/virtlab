@@ -11,11 +11,13 @@ Everything in this directory is for the operator.
    [`grant-laptop-host-access.md`](grant-laptop-host-access.md) →
    [`install-host-tools.md`](install-host-tools.md) →
    [`store-pull-secret.md`](store-pull-secret.md).
-  2. **Workstation** (after step 1 starts): [`prepare-laptop.md`](prepare-laptop.md)
-   → [`configure-laptop-dns.md`](configure-laptop-dns.md)
-   → [`connect-workstation-sshuttle.md`](connect-workstation-sshuttle.md).
-  3. **Bring-up:** [`bring-up-lab.md`](bring-up-lab.md) →
-   [`access-cluster.md`](access-cluster.md).
+  2. **Workstation:** [`prepare-laptop.md`](prepare-laptop.md) →
+   [`bring-up-lab.md`](bring-up-lab.md). Phase 4 of `virtlab up` configures
+   split-DNS and sshuttle automatically; use
+   [`configure-laptop-dns.md`](configure-laptop-dns.md) and
+   [`connect-workstation-sshuttle.md`](connect-workstation-sshuttle.md) only
+   to diagnose connectivity.
+  3. **Access:** [`access-cluster.md`](access-cluster.md).
 
 - **Fixing a specific problem?** Find the row below whose **Purpose** matches
 your symptom. 
@@ -38,13 +40,13 @@ complete those prerequisites first, but no other reading is required.
 | [`grant-laptop-host-access.md`](grant-laptop-host-access.md) | Laptop has no SSH/libvirt access to the host | low | available |
 | [`install-host-tools.md`](install-host-tools.md) | Host lacks the pinned OpenShift toolchain | low | available |
 | [`store-pull-secret.md`](store-pull-secret.md) | Host lacks the pull secret at the configured path | low | available |
-| [`prepare-laptop.md`](prepare-laptop.md) | Laptop lacks the Pulumi/Go toolchain or the selected stack | low | available |
+| [`prepare-laptop.md`](prepare-laptop.md) | Laptop lacks prerequisites or a valid `config.yaml` | low | available |
 | [`configure-laptop-dns.md`](configure-laptop-dns.md) | Laptop cannot resolve the cluster zone | low | available |
-| [`bring-up-lab.md`](bring-up-lab.md) | Create or update the stack | high | available |
+| [`bring-up-lab.md`](bring-up-lab.md) | Provision or reconcile the lab with `virtlab up` | high | available |
 | [`access-cluster.md`](access-cluster.md) | Get `oc` access to the running cluster | low | available |
 | [`reinstall-cluster.md`](reinstall-cluster.md) | Reproduce the cluster from scratch or re-fire a config change | high | available |
-| [`recover-failed-install.md`](recover-failed-install.md) | `pulumi up` failed during image or bootstrap | medium | available |
-| [`teardown-lab.md`](teardown-lab.md) | Remove the lab from the host | high | available |
+| [`recover-failed-install.md`](recover-failed-install.md) | `virtlab up` failed during image or bootstrap | medium | available |
+| [`teardown-lab.md`](teardown-lab.md) | Remove the lab and its host/workstation artifacts | high | available |
 | [`release-virtlab.md`](release-virtlab.md) | Package and publish a new semantic version release | low | available |
 
 New procedures follow the `sop-authoring` skill and its template. Project
