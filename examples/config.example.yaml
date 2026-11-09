@@ -19,8 +19,8 @@ hostSsh:
 #   - ha:      5 nodes (3 masters @ 4 vCPU/16G, 2 workers @ 2 vCPU/8G)
 preset: "sno"
 
-# Optional: pull secret file. If omitted, the lab tool attempts to automatically
-# retrieve your pull secret using the 'ocm' CLI if logged in.
+# Optional: pull secret file. If omitted, virtlab uses VIRTLAB_OCM_TOKEN when it
+# is set, then falls back to the 'ocm' CLI session if logged in.
 # pullSecretFile: ""
 
 # Network configuration (optional: virtlab automatically allocates a non-conflicting CIDR)

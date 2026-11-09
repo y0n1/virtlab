@@ -53,7 +53,7 @@ var ManagedToolList = []ToolDef{
 	{
 		Name:        "ocm",
 		Description: "OpenShift Cluster Manager CLI",
-		Purpose:     "Authenticates with console.redhat.com to fetch the OpenShift pull secret automatically if none is provided.",
+		Purpose:     "Authenticates with console.redhat.com to fetch the OpenShift pull secret automatically if none is provided, including non-interactively with VIRTLAB_OCM_TOKEN.",
 	},
 }
 

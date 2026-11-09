@@ -229,8 +229,18 @@ methods:
 1. Set `pullSecretFile` to the path of a pull secret file on the Workstation.
    The file must be valid JSON with an `auths` section. `~` expands to the home
    directory.
-2. Omit `pullSecretFile` and log in with the `ocm` CLI. `virtlab` retrieves the
-   pull secret automatically.
+2. Set the `VIRTLAB_OCM_TOKEN` environment variable to a Red Hat offline token
+   from <https://console.redhat.com/openshift/token>. `virtlab` uses the token
+   exclusively: it does not read an ambient `ocm` session and does not prompt.
+   This method works on CI runners and headless hosts.
+3. Omit `pullSecretFile` and `VIRTLAB_OCM_TOKEN`, and log in with the `ocm`
+   CLI. `virtlab` retrieves the pull secret automatically.
+
+Resolution is deterministic. `pullSecretFile` takes precedence over
+`VIRTLAB_OCM_TOKEN`, and the token takes precedence over the ambient `ocm`
+session. `VIRTLAB_OCM_TOKEN` is an environment-only input; it is not a
+configuration key. `virtlab` never prints the token and never passes it on a
+command line.
 
 If neither method works, `virtlab` stops with an error. It never stores the pull
 secret in `config.yaml` or in state. Keep the secret file out of version

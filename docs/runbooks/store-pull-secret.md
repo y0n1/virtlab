@@ -41,9 +41,10 @@
    ```
 
    `Expected:` the path of the pull secret on the Workstation. If you rely on
-   the `ocm` CLI instead, the key is absent and `virtlab up` retrieves the
-   secret automatically. `virtlab up` always delivers the bytes to
-   `/root/pull-secret.json` on the Host and overwrites the manual copy.
+   the `ocm` CLI or the `VIRTLAB_OCM_TOKEN` offline token instead, the key is
+   absent and `virtlab up` retrieves the secret automatically. `virtlab up`
+   always delivers the bytes to `/root/pull-secret.json` on the Host and
+   overwrites the manual copy.
 
 The bytes are injected host-side into `install-config.yaml` at image build
 time. They never enter the repo, the Pulumi program, or the stack state — only
@@ -53,7 +54,7 @@ the path appears in configuration.
 
 - `stat -c '%a %U' /root/pull-secret.json` → `600 root`.
 - `grep pullSecretFile config.yaml` → the Workstation source path, or no
-  output when `virtlab` uses `ocm`.
+  output when `virtlab` uses `ocm` or `VIRTLAB_OCM_TOKEN`.
 - `git ls-files | grep -q pull-secret` → no output.
 
 ## Troubleshooting
@@ -72,7 +73,8 @@ the path appears in configuration.
 - **Never commit the pull secret** — `.gitignore` excludes it, but the check
   is yours; the file belongs on the host only.
 - **Never put the bytes in stack config or environment variables** — only the
-  path is configuration.
+  path is configuration. The `VIRTLAB_OCM_TOKEN` offline token is a separate
+  credential used to retrieve the pull secret; it is not the pull secret.
 - **Never print or paste the file contents** into logs, tickets or chat.
 - **Never reuse a secret copied from an old capture** — it has been revoked.
 
@@ -80,5 +82,7 @@ the path appears in configuration.
 
 - Path and injection: `config.yaml` (`pullSecretFile`),
   `internal/workstation/pullsecret.go`, and `internal/host/pullsecret.go`.
+- Non-interactive source: `VIRTLAB_OCM_TOKEN` (offline token from
+  <https://console.redhat.com/openshift/token>).
 - Preflight: `internal/cluster/openshift.go`.
 - Ignore rule: `.gitignore` (`**/pull-secret.json`).
