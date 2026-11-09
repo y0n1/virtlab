@@ -165,7 +165,7 @@ what `up` changed. It is not the source of truth for libvirt resources.
 
 | File | Purpose |
 |---|---|
-| `sshuttle.pid` | PID file for the running tunnel |
+| `sshuttle.pid` | PID and start-time fingerprint of the running tunnel; a file whose identity does not verify is treated as stale |
 | `virtlab.lock` | Exclusive lock for `up` and `down` |
 
 The lock prevents two `virtlab` commands from running at the same time. A

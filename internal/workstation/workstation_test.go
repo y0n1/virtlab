@@ -1,14 +1,59 @@
 package workstation
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
+
+// stubProcessIdentity makes every PID appear to have the given command line
+// and start time for the duration of the test.
+func stubProcessIdentity(t *testing.T, commandLine, startTime string) {
+	t.Helper()
+	orig := readProcessIdentityFn
+	readProcessIdentityFn = func(int) (processIdentity, error) {
+		return processIdentity{CommandLine: commandLine, StartTime: startTime}, nil
+	}
+	t.Cleanup(func() { readProcessIdentityFn = orig })
+}
+
+// stubProcessIdentityError makes identity reads fail for the duration of the
+// test, simulating EPERM on a root-owned process.
+func stubProcessIdentityError(t *testing.T, err error) {
+	t.Helper()
+	orig := readProcessIdentityFn
+	readProcessIdentityFn = func(int) (processIdentity, error) {
+		return processIdentity{}, err
+	}
+	t.Cleanup(func() { readProcessIdentityFn = orig })
+}
+
+// stubTunnelCommands records every command the manager tries to run and
+// replaces it with a no-op so tests never signal a real process.
+func stubTunnelCommands(t *testing.T) *[]string {
+	t.Helper()
+	orig := execTunnelCmdFn
+	var calls []string
+	execTunnelCmdFn = func(name string, args ...string) *exec.Cmd {
+		calls = append(calls, strings.Join(append([]string{name}, args...), " "))
+		return exec.Command("true")
+	}
+	t.Cleanup(func() { execTunnelCmdFn = orig })
+	return &calls
+}
+
+func writePIDFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestDetectOS(t *testing.T) {
 	info := DetectOS()
@@ -45,9 +90,7 @@ func TestTunnelManager_StalePID(t *testing.T) {
 
 	// Write an invalid/stale PID
 	pidFile := filepath.Join(dir, defaultPIDFileName)
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(99999999)), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writePIDFile(t, pidFile, strconv.Itoa(99999999))
 
 	running, _ := tm.IsRunning()
 	if running {
@@ -57,6 +100,137 @@ func TestTunnelManager_StalePID(t *testing.T) {
 	// PID file should have been cleaned up
 	if _, err := os.Stat(pidFile); !os.IsNotExist(err) {
 		t.Error("expected stale PID file to be removed")
+	}
+}
+
+func TestTunnelManager_IsRunning_AcceptsVerifiedSshuttle(t *testing.T) {
+	dir := t.TempDir()
+	tm := NewTunnelManager(dir)
+	writePIDFile(t, tm.PIDFilePath, strconv.Itoa(os.Getpid()))
+	stubProcessIdentity(t, "/usr/local/bin/sshuttle --pidfile /tmp/x --daemon", "Mon Nov  9 10:00:00 2026")
+
+	running, pid := tm.IsRunning()
+	if !running || pid != os.Getpid() {
+		t.Errorf("expected verified sshuttle PID %d to be running, got running=%v pid=%d", os.Getpid(), running, pid)
+	}
+}
+
+func TestTunnelManager_IsRunning_RejectsNonSshuttlePID(t *testing.T) {
+	dir := t.TempDir()
+	tm := NewTunnelManager(dir)
+	writePIDFile(t, tm.PIDFilePath, strconv.Itoa(os.Getpid()))
+	stubProcessIdentity(t, "/usr/sbin/cupsd -l", "Mon Nov  9 10:00:00 2026")
+
+	running, pid := tm.IsRunning()
+	if running || pid != 0 {
+		t.Errorf("expected non-sshuttle PID to be stale, got running=%v pid=%d", running, pid)
+	}
+	if _, err := os.Stat(tm.PIDFilePath); !os.IsNotExist(err) {
+		t.Error("expected stale PID file to be removed")
+	}
+}
+
+func TestTunnelManager_IsRunning_DetectsPIDReuse(t *testing.T) {
+	dir := t.TempDir()
+	tm := NewTunnelManager(dir)
+
+	// The PID file records an sshuttle process that started at 09:00.
+	record, err := json.Marshal(pidFileRecord{
+		PID:       os.Getpid(),
+		Command:   "/usr/local/bin/sshuttle --daemon",
+		StartTime: "Mon Nov  9 09:00:00 2026",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writePIDFile(t, tm.PIDFilePath, string(record))
+
+	// The live PID now belongs to a different sshuttle invocation that started
+	// at 10:00, so the PID was reused.
+	stubProcessIdentity(t, "/usr/local/bin/sshuttle --daemon", "Mon Nov  9 10:00:00 2026")
+
+	running, pid := tm.IsRunning()
+	if running || pid != 0 {
+		t.Errorf("expected reused PID to be stale, got running=%v pid=%d", running, pid)
+	}
+	if _, err := os.Stat(tm.PIDFilePath); !os.IsNotExist(err) {
+		t.Error("expected stale PID file to be removed")
+	}
+}
+
+func TestTunnelManager_IsRunning_EPERMIdentityIsStale(t *testing.T) {
+	dir := t.TempDir()
+	tm := NewTunnelManager(dir)
+
+	// PID 1 exists but is root-owned. If its command line cannot be read
+	// (EPERM), the PID is unverified and must be treated as stale.
+	writePIDFile(t, tm.PIDFilePath, "1")
+	stubProcessIdentityError(t, syscall.EPERM)
+
+	running, pid := tm.IsRunning()
+	if running || pid != 0 {
+		t.Errorf("expected unverifiable PID to be stale, got running=%v pid=%d", running, pid)
+	}
+	if _, err := os.Stat(tm.PIDFilePath); !os.IsNotExist(err) {
+		t.Error("expected stale PID file to be removed")
+	}
+}
+
+func TestTunnelManager_Stop_DoesNotSignalUnverifiedPID(t *testing.T) {
+	dir := t.TempDir()
+	tm := NewTunnelManager(dir)
+	writePIDFile(t, tm.PIDFilePath, strconv.Itoa(os.Getpid()))
+	stubProcessIdentity(t, "/usr/sbin/cupsd -l", "Mon Nov  9 10:00:00 2026")
+	calls := stubTunnelCommands(t)
+
+	if err := tm.Stop(); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("expected no signals for an unverified PID, ran: %v", *calls)
+	}
+	if _, err := os.Stat(tm.PIDFilePath); !os.IsNotExist(err) {
+		t.Error("expected stale PID file to be removed")
+	}
+}
+
+func TestTunnelManager_Stop_NoSignalOnEPERM(t *testing.T) {
+	dir := t.TempDir()
+	tm := NewTunnelManager(dir)
+	writePIDFile(t, tm.PIDFilePath, "1")
+	stubProcessIdentityError(t, syscall.EPERM)
+	calls := stubTunnelCommands(t)
+
+	if err := tm.Stop(); err != nil {
+		t.Fatalf("Stop returned error: %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("expected no signals when identity cannot be read, ran: %v", *calls)
+	}
+	if _, err := os.Stat(tm.PIDFilePath); !os.IsNotExist(err) {
+		t.Error("expected stale PID file to be removed")
+	}
+}
+
+func TestIsSshuttleProcess(t *testing.T) {
+	tests := []struct {
+		name        string
+		commandLine string
+		want        bool
+	}{
+		{"absolute path", "/usr/local/bin/sshuttle --ns-hosts=10.0.0.1 --daemon", true},
+		{"bare name", "sshuttle --daemon", true},
+		{"python shebang install", "/opt/homebrew/bin/python3 /opt/homebrew/bin/sshuttle --daemon", true},
+		{"unrelated daemon", "/usr/sbin/cupsd -l", false},
+		{"sshuttle as argument", "vim /tmp/sshuttle", false},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isSshuttleProcess(tt.commandLine); got != tt.want {
+				t.Errorf("isSshuttleProcess(%q) = %v, want %v", tt.commandLine, got, tt.want)
+			}
+		})
 	}
 }
 
@@ -137,6 +311,7 @@ func TestTunnelManager_Start_ElevationPrompt(t *testing.T) {
 		execTunnelCmdFn = orig
 		lookPathTunnelFn = origLookPath
 	}()
+	stubProcessIdentity(t, "/usr/local/bin/sshuttle --daemon", "Mon Nov  9 10:00:00 2026")
 
 	out := captureStdout(func() {
 		_ = tm.Start("root", "192.168.1.50", "192.168.100.0/24", "192.168.100.1")
@@ -148,6 +323,48 @@ func TestTunnelManager_Start_ElevationPrompt(t *testing.T) {
 	}
 	if !strings.Contains(out, "You may be prompted for your password.") {
 		t.Errorf("expected password prompt notice in output, got:\n%s", out)
+	}
+}
+
+func TestTunnelManager_Start_RecordsIdentity(t *testing.T) {
+	dir := t.TempDir()
+	tm := NewTunnelManager(dir)
+
+	orig := execTunnelCmdFn
+	origLookPath := lookPathTunnelFn
+	execTunnelCmdFn = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("sh", "-c", "echo "+strconv.Itoa(os.Getpid())+" > "+tm.PIDFilePath)
+	}
+	lookPathTunnelFn = func(file string) (string, error) {
+		return "/mock/bin/sshuttle", nil
+	}
+	defer func() {
+		execTunnelCmdFn = orig
+		lookPathTunnelFn = origLookPath
+	}()
+	const startTime = "Mon Nov  9 10:00:00 2026"
+	stubProcessIdentity(t, "/usr/local/bin/sshuttle --daemon", startTime)
+
+	if err := tm.Start("root", "192.168.1.50", "192.168.100.0/24", "192.168.100.1"); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(tm.PIDFilePath)
+	if err != nil {
+		t.Fatalf("reading PID file: %v", err)
+	}
+	var rec pidFileRecord
+	if err := json.Unmarshal(data, &rec); err != nil {
+		t.Fatalf("PID file is not a JSON identity record: %v (%s)", err, data)
+	}
+	if rec.PID != os.Getpid() {
+		t.Errorf("expected recorded PID %d, got %d", os.Getpid(), rec.PID)
+	}
+	if rec.StartTime != startTime {
+		t.Errorf("expected recorded start time %q, got %q", startTime, rec.StartTime)
+	}
+	if !isSshuttleProcess(rec.Command) {
+		t.Errorf("expected recorded command to be sshuttle, got %q", rec.Command)
 	}
 }
 
@@ -171,10 +388,9 @@ func TestTunnelManager_Stop_ElevationPrompt(t *testing.T) {
 	dir := t.TempDir()
 	tm := NewTunnelManager(dir)
 
-	// Write current process PID to PID file so tm.IsRunning() detects active tunnel
-	if err := os.WriteFile(tm.PIDFilePath, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	// A verified sshuttle record lets Stop proceed to the signal path.
+	writePIDFile(t, tm.PIDFilePath, strconv.Itoa(os.Getpid()))
+	stubProcessIdentity(t, "/usr/local/bin/sshuttle --daemon", "Mon Nov  9 10:00:00 2026")
 
 	orig := execTunnelCmdFn
 	execTunnelCmdFn = func(name string, args ...string) *exec.Cmd {
