@@ -1,4 +1,4 @@
-.PHONY: help fetch-libvirt-schemas clean build up down status check vet test lint test-coverage release-snapshot
+.PHONY: help fetch-libvirt-schemas clean build up down status check vet test lint test-coverage docs-check release-snapshot
 
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
@@ -43,6 +43,11 @@ test:
 lint:
 	@echo "==> golangci-lint"
 	@golangci-lint run ./cmd/... ./internal/...
+
+## Verify that paths, Make targets, and virtlab commands named in docs resolve
+docs-check:
+	@echo "==> docs check"
+	@go run ./hack/docscheck
 
 ## Run unit tests with coverage profile and display summary
 test-coverage:

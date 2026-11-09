@@ -106,7 +106,7 @@ The lifecycle is divided into 4 sequential **Phases**:
 |---|---|---|
 | **Up** | `virtlab up` | Executes Phases 1 through 4 end-to-end to create and verify the lab. |
 | **Down** | `virtlab down` | Completely destroys the OpenShift cluster, Guests, Lab Network, and Lab Pool, and reverses all Workstation and Host configurations. |
-| **Status** | `virtlab status` | Inspects and displays the current state of the Workstation tunnel, Host prerequisites, Guests, and OpenShift cluster. |
+| **Status** | `virtlab status` | Reports the Workstation **Lab Tunnel**, Host SSH reachability, the local kubeconfig and kubeadmin password, and the local Workstation state. It does not inspect Guests or the OpenShift cluster. |
 
 ---
 

@@ -34,7 +34,8 @@
    oc version --client
    ```
 
-   `Expected:` the same pinned version (the host smoke uses `oc`).
+   `Expected:` the same pinned version (the Host uses `oc` for the platform
+   check).
 
 3. **Check registry reachability** (the image build pulls from quay):
 
@@ -52,8 +53,8 @@
 
    `Expected:` two absolute paths.
 
-The version pin is defined once in `internal/config/config.go` and rendered into
-the bootstrap script; do not edit the script or a hand-copied version.
+The version comes from `ocpVersion` in `config.yaml`. The supported Y-streams
+are in `internal/config/validation.go`; do not edit a hand-copied version.
 
 ## Verify
 
@@ -83,7 +84,7 @@ the bootstrap script; do not edit the script or a hand-copied version.
 
 ## Related
 
-- Pin: `internal/config/config.go` (`ocpVersion`) and
-  `config.yaml` (`ocpVersion`).
+- Supported versions: `internal/config/validation.go`
+  (`SupportedOpenShiftYStreams`) and `config.yaml` (`ocpVersion`).
 - Preflight: `internal/cluster/openshift.go`.
 - Next: [`store-pull-secret.md`](store-pull-secret.md).

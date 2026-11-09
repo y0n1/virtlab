@@ -37,10 +37,10 @@ Remote Hypervisor (Linux / KVM / libvirt)
 
 ### 4-Phase Provisioning Lifecycle
 
-1. **Phase 1: Host & Workstation Preparation**: Validates remote hypervisor capacity (vCPU, RAM, disk headroom), checks workstation dependencies, sets up split-DNS, and establishes the `sshuttle` tunnel.
-2. **Phase 2: Lab Infrastructure**: Provisions dedicated libvirt storage pool, virtual network with static DHCP leases, and VM domain definitions.
-3. **Phase 3: OpenShift Installation**: Generates agent ISO, powers on nodes, tracks installation progress through completion, and syncs cluster credentials locally.
-4. **Phase 4: Verification**: Performs live end-to-end smoke checks (DNS lookup, API health, Web Console probe).
+1. **Phase 1: Host & Workstation Preparation**: Checks Workstation prerequisites, verifies Host connectivity and capacity, prepares the Host, installs the pinned OpenShift toolchain, and delivers the pull secret.
+2. **Phase 2: Lab Infrastructure**: Provisions the dedicated libvirt storage pool, virtual network with static DHCP leases, VM domains, and (in `compact`/`ha`) the Host-side Ingress Load Balancer.
+3. **Phase 3: OpenShift Installation**: Generates the agent ISO, powers on the nodes, waits for the installation to complete, ejects the ISO, and reconciles the router replicas.
+4. **Phase 4: Verification**: Configures split-DNS and starts the `sshuttle` Lab Tunnel, performs live end-to-end checks (DNS, API health, Web Console), and syncs cluster credentials locally.
 
 ---
 
@@ -86,6 +86,9 @@ virtlab version
 make build
 # Binary is built at bin/virtlab
 ```
+
+The commands below use `virtlab`. If you built from source and did not install
+the binary on your `PATH`, run `./bin/virtlab` instead.
 
 ### 2. Configure Your Lab
 
@@ -139,17 +142,17 @@ hostSsh:
 ### 3. Deploy the Lab
 
 ```bash
-./virtlab up
+virtlab up
 ```
 
-*(Use `./virtlab up -y` to run non-interactively without prompt pauses.)*
+*(Use `virtlab up -y` to run non-interactively without prompt pauses.)*
 
 ### 4. Check Lab Status
 
 Inspect running tunnels, hypervisor connectivity, and workstation state:
 
 ```bash
-./virtlab status
+virtlab status
 ```
 
 ### 5. Access the Cluster
@@ -171,7 +174,7 @@ open https://console-openshift-console.apps.<clusterName>.<baseDomain>
 To destroy the cluster, clean up VMs and storage pools, and revert local DNS / tunnel configs:
 
 ```bash
-./virtlab down
+virtlab down
 ```
 
 ---

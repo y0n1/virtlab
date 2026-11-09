@@ -1,8 +1,11 @@
 package config
 
 import (
+	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -78,13 +81,18 @@ func LoadConfig(path string) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("config: read file '%s': %w", path, err)
 	}
+	if err := ValidateSchema(data); err != nil {
+		return nil, fmt.Errorf("config: '%s': %w", path, err)
+	}
 	return LoadConfigFromBytes(data)
 }
 
 // LoadConfigFromBytes parses YAML data into a Config struct and applies defaults.
 func LoadConfigFromBytes(data []byte) (*Config, error) {
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("config: unmarshal yaml: %w", err)
 	}
 
