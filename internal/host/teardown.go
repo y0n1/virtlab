@@ -58,7 +58,7 @@ func (c *SSHClient) TeardownContext(ctx context.Context, cfg *config.Config) err
 		return err
 	}
 
-	fmt.Printf("\n[Host] Cleaning up Host resources for cluster '%s' (%s)...\n", cfg.ClusterName, c.Target())
+	fmt.Printf("\n[Host] Cleaning up Host resources for cluster '%s' (%s)...\n", cfg.ClusterName, c.Host)
 
 	out, err := c.RunScriptContext(ctx, script)
 	if err != nil {
