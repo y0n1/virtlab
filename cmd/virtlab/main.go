@@ -283,6 +283,13 @@ func runUp(ctx context.Context, args []string) error {
 			cfg.Network.APIVIP, cfg.Network.IngressVIP, cfg.Network.IngressLBVIP)
 	}
 
+	// A healthy cluster is adopted only when its applied declaration still
+	// matches config.yaml. Check before Phase 2 so a preset, version, or node
+	// inventory change fails before Pulumi mutates any host resource.
+	if err := ocp.EnsureDeclarationCompatible(); err != nil {
+		return err
+	}
+
 	// =========================================================================
 	// Phase 1: Host and Workstation Preparation
 	// =========================================================================

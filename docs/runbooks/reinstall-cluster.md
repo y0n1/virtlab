@@ -23,7 +23,8 @@
    - `sno` ↔ `compact`/`ha` changes the installer `platform`
      (`None` ↔ `BareMetal`), which is immutable.
    - `ocpVersion` and rendered manifests are not re-applied by `virtlab up`
-     while the cluster is healthy; the resume guard adopts it.
+     while the cluster is healthy. `virtlab up` stops with a mismatch error
+     instead.
    - VM sizing and count changes still require a fresh install to converge.
 
    `Expected:` any of the above means the from-scratch path below.
@@ -58,8 +59,9 @@
 
 ## Troubleshooting
 
-- **`up` finishes without reinstalling** → the cluster was still healthy; you
-  skipped step 3. Run `virtlab down -y` first.
+- **`up` fails with `config.yaml no longer matches its applied declaration`**
+  → the cluster is healthy but the declaration changed; you skipped step 3.
+  Run `virtlab down -y` first.
 - **`platform is immutable after install`** → same cause; the from-scratch
   path is required.
 - **Teardown failed** → fix the reported stage and re-run `virtlab down`

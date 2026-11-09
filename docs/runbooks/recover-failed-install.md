@@ -35,8 +35,10 @@
    ```
 
    `Expected:` artifacts under the install directory are reused and the
-   failed step is retried. If the cluster is already healthy, the resume
-   guard adopts it and skips installation.
+   failed step is retried. If the cluster is already healthy and its applied
+   declaration still matches `config.yaml`, the resume guard adopts it and
+   skips installation. A mismatch stops the run; see
+   [`reinstall-cluster.md`](reinstall-cluster.md).
 
 3. **Read the installer log** for an image or bootstrap failure:
 
@@ -92,7 +94,7 @@
   host** — `virtlab up` re-renders them.
 - **Never tear down without the snapshot** taken before the failed run.
 - **Never treat a skipped install as a failure** — the resume guard adopted a
-  healthy cluster.
+  healthy cluster that still matches `config.yaml`.
 
 ## Related
 

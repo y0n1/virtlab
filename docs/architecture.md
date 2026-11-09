@@ -165,14 +165,17 @@ install it.
 
 | Stage | Actions |
 |---|---|
-| Preflight | Load and validate `config.yaml`; verify user tools and install managed tools; resolve the pull secret; check Workstation state and Host connectivity; reject a co-existing lab; reject an immutable platform change; check Host capacity; resolve the CIDR, gateway, and VIPs; at the start of Phase 2, reject live Host resources that no Pulumi stack tracks, and reject a stack bound to another Host or backend |
+| Preflight | Load and validate `config.yaml`; verify user tools and install managed tools; resolve the pull secret; check Workstation state and Host connectivity; reject a co-existing lab; reject an immutable platform change; check Host capacity; resolve the CIDR, gateway, and VIPs; reject a declaration mismatch on a healthy cluster; at the start of Phase 2, reject live Host resources that no Pulumi stack tracks, and reject a stack bound to another Host or backend |
 | Phase 1: Preparation | Prepare the Host base; install the pinned `openshift-install` and `oc`; deliver the pull secret to the Host |
 | Phase 2: Lab setup | Resolve the bridge; run Pulumi to create the pool, network, and Guest VMs; in `compact`/`ha`, disable IGMP snooping, assign the Ingress LB VIP to the bridge, and start HAProxy |
 | Phase 3: Installation | Render the installer manifests; build the Agent ISO; attach the ISO and boot every Guest; wait for `install-complete`; eject and remove the ISO; reconcile the `IngressController` replicas |
 | Phase 4: Verification | Configure split-DNS and start the Lab Tunnel; check DNS answers; probe the API `/healthz`; probe the web console; sync the kubeconfig and kubeadmin password; run `oc get nodes` and require every node to be `Ready` |
 
 Phase 3 has a resume guard. If the installer kubeconfig exists and the API
-answers `/healthz` with `ok`, `virtlab` skips the installation.
+answers `/healthz` with `ok`, `virtlab` compares the recorded preset,
+`ocpVersion`, and node inventory with `config.yaml`. A match skips the
+installation. A mismatch, an unhealthy API, or a failed probe stops the run
+and leaves the cluster untouched.
 
 `virtlab down` reverses the resources in this order:
 
