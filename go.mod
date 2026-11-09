@@ -6,6 +6,7 @@ require (
 	github.com/blang/semver v3.5.1+incompatible
 	github.com/pulumi/pulumi-terraform-provider/sdks/go/libvirt v0.0.0-00010101000000-000000000000
 	github.com/pulumi/pulumi/sdk/v3 v3.274.1
+	github.com/santhosh-tekuri/jsonschema/v5 v5.0.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -81,7 +82,6 @@ require (
 	github.com/pulumi/pulumi-cloud-sdk/go v1.20261104.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
-	github.com/santhosh-tekuri/jsonschema/v5 v5.0.0 // indirect
 	github.com/sergi/go-diff v1.4.0 // indirect
 	github.com/spf13/cobra v1.10.2 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
