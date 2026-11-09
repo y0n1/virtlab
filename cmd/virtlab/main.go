@@ -149,7 +149,7 @@ Choose one recovery:
   - Discard the leftovers: run 'virtlab down' with the original config, then remove any remaining libvirt pool or network named '%s' and re-run 'virtlab up';
   - Keep the resources: restore the Pulumi state backup for cluster '%s' and re-run 'virtlab up'.
 
-See docs/state.md (Backup and restore) for the state backup procedure.`,
+See docs/state.md (Backup and restore) for the state backup procedure`,
 		host, clusterName, backend, clusterName, clusterName)
 }
 
