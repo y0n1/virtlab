@@ -34,7 +34,7 @@ jobs:
       - name: Run lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v1.64.5
+          version: v2.15
           args: --timeout=5m ./cmd/... ./internal/...
 
       - name: Run tests
