@@ -54,7 +54,7 @@ Remote Hypervisor (Linux / KVM / libvirt)
 ### Remote Host (Hypervisor)
 - Linux host running KVM / `libvirtd`
 - Passwordless SSH access (`ssh-key`) for the provisioning user
-- Red Hat OpenShift pull secret (via `pullSecretFile` or authenticated `ocm` CLI)
+- Red Hat OpenShift pull secret (via `pullSecretFile`, the `VIRTLAB_OCM_TOKEN` environment variable, or an authenticated `ocm` CLI)
 
 ---
 
@@ -121,8 +121,8 @@ hostSsh:
 #   memoryMib: 8192
 #   diskGib: 100
 
-# Optional: pull secret file. If omitted, the lab tool attempts to automatically
-# retrieve your pull secret using the 'ocm' CLI if logged in.
+# Optional: pull secret file. If omitted, virtlab uses VIRTLAB_OCM_TOKEN when it
+# is set, then falls back to the 'ocm' CLI session if logged in.
 # pullSecretFile: ""
 
 # Network configuration (optional: virtlab automatically allocates a non-conflicting CIDR)
@@ -138,6 +138,27 @@ hostSsh:
 > answers on a keepalived-backed **API VIP**, and `*.apps` resolves to an
 > **Ingress Load Balancer** (HAProxy on the Hypervisor) that spreads traffic
 > across every router node. `sno` stays on `platform: none` and needs neither.
+
+#### Non-interactive pull secret (CI and headless hosts)
+
+`virtlab up` can authenticate to OCM with a Red Hat offline token in the
+`VIRTLAB_OCM_TOKEN` environment variable. When the variable is set and
+`pullSecretFile` is empty, `virtlab` uses the token exclusively: it does not
+read an ambient `ocm` session and does not prompt.
+
+Create an offline token at <https://console.redhat.com/openshift/token>.
+
+```yaml
+# GitHub Actions: inject the token from a repository secret.
+- name: Provision the lab
+  env:
+    VIRTLAB_OCM_TOKEN: ${{ secrets.VIRTLAB_OCM_TOKEN }}
+  run: virtlab up -y
+```
+
+`pullSecretFile` takes precedence over `VIRTLAB_OCM_TOKEN`. The variable is an
+environment-only input; there is no configuration key. `virtlab` never prints
+the token and never passes it on a command line.
 
 ### 3. Deploy the Lab
 

@@ -192,7 +192,7 @@ external.
 |---|---|
 | CentOS Stream 9 Host VM with root SSH, outbound internet, and enough disk; a snapshot for rollback | [`runbooks/prepare-host-vm.md`](runbooks/prepare-host-vm.md) |
 | SSH public key authorization for the provisioning user | [`runbooks/grant-laptop-host-access.md`](runbooks/grant-laptop-host-access.md) |
-| Pull secret source: a local file, or an authenticated `ocm` CLI. Delivery to the Host is automated. | [`runbooks/store-pull-secret.md`](runbooks/store-pull-secret.md), [`configuration.md`](configuration.md#pull-secret) |
+| Pull secret source: a local file, the `VIRTLAB_OCM_TOKEN` offline token, or an authenticated `ocm` CLI. Delivery to the Host is automated. | [`runbooks/store-pull-secret.md`](runbooks/store-pull-secret.md), [`configuration.md`](configuration.md#pull-secret) |
 | Workstation OpenSSH >= 8.0, Go >= 1.22, and `oc` for Phase 4 verification | [`runbooks/prepare-laptop.md`](runbooks/prepare-laptop.md) |
 | Host toolchain fallback and diagnosis | [`runbooks/install-host-tools.md`](runbooks/install-host-tools.md) |
 | Tunnel and split-DNS diagnosis | [`runbooks/connect-workstation-sshuttle.md`](runbooks/connect-workstation-sshuttle.md), [`runbooks/configure-laptop-dns.md`](runbooks/configure-laptop-dns.md) |

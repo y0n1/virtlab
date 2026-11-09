@@ -9,7 +9,8 @@
 
 ## Prereqs
 - Shell access to the laptop with this repository checked out.
-- A pull secret file, or an authenticated `ocm` CLI (see
+- A pull secret file, the `VIRTLAB_OCM_TOKEN` offline token, or an authenticated
+  `ocm` CLI (see
   [`store-pull-secret.md`](store-pull-secret.md)).
 - `sshuttle`, `pulumi`, and `ocm` are installed automatically by `virtlab up`
   and tracked in `~/.local/state/virtlab/state.json`.
