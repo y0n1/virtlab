@@ -1,0 +1,24 @@
+.DS_Store
+
+.tmp/
+.ignored/
+bin/
+*.pid
+coverage.out
+coverage.txt
+dist/
+config.yaml
+
+# Local secrets — never commit
+**/pull-secret.json
+**/license.zip
+
+*.local.*
+Pulumi.*.yaml
+/bin
+
+# Local git worktrees
+.worktrees/
+
+# Build output
+/virtlab

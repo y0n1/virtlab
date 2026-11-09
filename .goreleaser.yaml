@@ -1,0 +1,66 @@
+version: 2
+
+project_name: virtlab
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: virtlab
+    main: ./cmd/virtlab
+    binary: virtlab
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/y0n1/virtlab/internal/version.Version={{.Version}}
+      - -X github.com/y0n1/virtlab/internal/version.GitCommit={{.Commit}}
+      - -X github.com/y0n1/virtlab/internal/version.BuildDate={{.Date}}
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format: tar.gz
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: "Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 100
+    - title: "Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 200
+    - title: "Performance Improvements"
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 300
+    - title: "Refactor"
+      regexp: '^.*?refactor(\([[:word:]]+\))??!?:.+$'
+      order: 400
+    - title: "Documentation"
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 500
+    - title: "Others"
+      order: 999
+
+release:
+  github:
+    owner: y0n1
+    name: virtlab
+  prerelease: auto
+  mode: replace

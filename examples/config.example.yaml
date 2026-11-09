@@ -1,0 +1,50 @@
+# Example configuration file, copy this to 'config.yaml' and customize for your environment.
+
+clusterName: "demo"
+baseDomain: "acme.net"
+ocpVersion: "4.22.0"             # Supported Y-streams: 4.20, 4.21, 4.22
+
+# Remote Host hypervisor SSH settings
+hostSsh:
+  host: "192.0.2.10"
+  user: "root"
+  # Path to your SSH public key on the Workstation (REQUIRED).
+  # Used for SSH access and injected into cluster nodes for console debugging.
+  publicKeyFile: "~/.ssh/id_rsa.pub"
+
+# Cluster topology preset: "sno" (1 node) | "compact" (3 nodes) | "ha" (3 master + 2 worker)
+# Sizing defaults to official Red Hat bare-metal minimums:
+#   - sno:     1 node  (8 vCPUs, 16 GiB RAM, 120 GiB Disk)
+#   - compact: 3 nodes (4 vCPUs, 16 GiB RAM, 100 GiB Disk each)
+#   - ha:      5 nodes (3 masters @ 4 vCPU/16G, 2 workers @ 2 vCPU/8G)
+preset: "sno"
+
+# Optional: pull secret file. If omitted, the lab tool attempts to automatically
+# retrieve your pull secret using the 'ocm' CLI if logged in.
+# pullSecretFile: ""
+
+# Network configuration (optional: virtlab automatically allocates a non-conflicting CIDR)
+# network:
+#   cidr: "192.168.100.0/24"      # optional override for advanced users
+#
+# Virtual IPs (non-sno presets only: 'sno' uses the single node's address).
+# Left unset, they are derived from the resolved CIDR at offsets .5, .6 and .7.
+# When set, each must be inside the CIDR, must not be the gateway, a node lease,
+# or inside the DHCP pool (.100-.200), and all three must be distinct.
+#   api:        published as api/api-int; held by keepalived on the control plane
+#   ingress:    required by 'platform: baremetal'; reserved, unused externally
+#   ingressLb:  published as *.apps; owned by the HAProxy instance on the Host
+# network:
+#   apiVip: "192.168.100.5"
+#   ingressVip: "192.168.100.6"
+#   ingressLbVip: "192.168.100.7"
+
+# Optional hardware overrides (uncomment to customize sizing)
+# controlPlaneOverrides:
+#   vcpus: 8
+#   memoryMib: 16384
+#   diskGib: 120
+# workerOverrides:
+#   vcpus: 4
+#   memoryMib: 8192
+#   diskGib: 100

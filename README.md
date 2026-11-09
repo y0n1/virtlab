@@ -1,0 +1,203 @@
+# virtlab
+
+[![CI](https://github.com/y0n1/virtlab/actions/workflows/ci.yml/badge.svg)](https://github.com/y0n1/virtlab/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/y0n1/virtlab?include_prereleases)](https://github.com/y0n1/virtlab/releases)
+
+**virtlab** is an automated, declarative CLI tool that provisions OpenShift clusters on remote Linux KVM/libvirt hypervisors, seamlessly connecting your local workstation to the cluster without manual VPN or DNS setup.
+
+---
+
+## Features
+
+- **Multi-Topology Presets**: Deploy Single Node OpenShift (**SNO**), 3-node **Compact**, or 5-node **HA** (3 control plane + 2 workers) with validated hardware sizing.
+- **Zero-Friction Workstation Connectivity**: Automatically manages split-DNS (`/etc/resolver` on macOS, systemd-resolved on Linux) and background `sshuttle` tunneling directly into the isolated lab subnet.
+- **Declarative Infrastructure**: Uses Pulumi Automation API with the `libvirt` provider to define dedicated storage pools, isolated virtual networks, and guest VMs.
+- **Unattended Agent-Based Installation**: Automatically renders `install-config` and `agent-config`, triggers the OpenShift agent-based installer, monitors bootstrap progress, and ejects media on completion.
+- **End-to-End Verification & Kubeconfig Sync**: Verifies split-DNS, probes `/healthz` and Web Console endpoints, and drops a ready-to-use kubeconfig onto your workstation (`~/.kube/config.<clusterName>`).
+- **Clean Teardown**: Reverts local DNS configs, terminates tunnels, and purges remote VMs and storage volumes in one command.
+
+---
+
+## Architecture
+
+```text
+Local Workstation (macOS / Linux)
+  │
+  ├── split-DNS (/etc/resolver or systemd-resolved) ──▶ queries routed to lab gateway
+  ├── sshuttle tunnel (background daemon) ────────────▶ routes lab CIDR via SSH
+  │
+  ▼ SSH / Tunnel
+Remote Hypervisor (Linux / KVM / libvirt)
+  └── virbr-labN (e.g., 192.168.100.0/24)
+        ├── Gateway / dnsmasq (192.168.100.1)
+        └── Guest VM(s) running OpenShift 4.20+
+              ├── api.<cluster>.<domain>:6443
+              └── console-openshift-console.apps.<cluster>.<domain>
+```
+
+### 4-Phase Provisioning Lifecycle
+
+1. **Phase 1: Host & Workstation Preparation**: Validates remote hypervisor capacity (vCPU, RAM, disk headroom), checks workstation dependencies, sets up split-DNS, and establishes the `sshuttle` tunnel.
+2. **Phase 2: Lab Infrastructure**: Provisions dedicated libvirt storage pool, virtual network with static DHCP leases, and VM domain definitions.
+3. **Phase 3: OpenShift Installation**: Generates agent ISO, powers on nodes, tracks installation progress through completion, and syncs cluster credentials locally.
+4. **Phase 4: Verification**: Performs live end-to-end smoke checks (DNS lookup, API health, Web Console probe).
+
+---
+
+## Prerequisites
+
+### Workstation
+- **Go** (>= 1.26) & **OpenSSH** (>= 8.0)
+- `sshuttle` (installed automatically if missing via Homebrew or system package manager)
+- OpenShift client CLI (`oc`) for interacting with the cluster
+
+### Remote Host (Hypervisor)
+- Linux host running KVM / `libvirtd`
+- Passwordless SSH access (`ssh-key`) for the provisioning user
+- Red Hat OpenShift pull secret (via `pullSecretFile` or authenticated `ocm` CLI)
+
+---
+
+## Quick Start
+
+### 1. Install `virtlab`
+
+#### Option A: Download Pre-built Binary (Recommended)
+Download the latest tarball matching your OS and architecture from [GitHub Releases](https://github.com/y0n1/virtlab/releases):
+
+```bash
+# macOS (Apple Silicon arm64)
+curl -sLO https://github.com/y0n1/virtlab/releases/latest/download/virtlab_darwin_arm64.tar.gz
+tar -xzf virtlab_darwin_arm64.tar.gz && sudo install -m 0755 virtlab /usr/local/bin/virtlab
+
+# Linux (x86_64 amd64)
+curl -sLO https://github.com/y0n1/virtlab/releases/latest/download/virtlab_linux_amd64.tar.gz
+tar -xzf virtlab_linux_amd64.tar.gz && sudo install -m 0755 virtlab /usr/local/bin/virtlab
+```
+
+Verify the installation:
+```bash
+virtlab version
+```
+
+#### Option B: Build from Source
+
+```bash
+make build
+# Binary is built at bin/virtlab
+```
+
+### 2. Configure Your Lab
+
+Copy the example configuration to `config.yaml`:
+
+```bash
+cp examples/config.example.yaml config.yaml
+```
+
+Edit `config.yaml` to specify your hypervisor host, topology preset, and domain:
+
+```yaml
+clusterName: "demo"
+baseDomain: "example.com"
+ocpVersion: "4.22.0"
+preset: "sno" # "sno" (1 node) | "compact" (3 nodes) | "ha" (5 nodes)
+
+hostSsh:
+  host: "hypervisor.internal"
+  user: "root"
+  publicKeyFile: "~/.ssh/id_ed25519.pub"
+
+# Optional hardware overrides (uncomment to customize sizing)
+# controlPlaneOverrides:
+#   vcpus: 32
+#   memoryMib: 131072
+#   diskGib: 500
+# workerOverrides:
+#   vcpus: 4
+#   memoryMib: 8192
+#   diskGib: 100
+
+# Optional: pull secret file. If omitted, the lab tool attempts to automatically
+# retrieve your pull secret using the 'ocm' CLI if logged in.
+# pullSecretFile: ""
+
+# Network configuration (optional: virtlab automatically allocates a non-conflicting CIDR)
+# network:
+#   cidr: "192.168.100.0/24"      # optional override for advanced users
+#   # Non-'sno' presets derive three VIPs from the CIDR (.5, .6, .7); override only if they collide:
+#   # apiVip: "192.168.100.5"        # api/api-int
+#   # ingressVip: "192.168.100.6"    # required by platform: baremetal, reserved
+#   # ingressLbVip: "192.168.100.7"  # *.apps, served by HAProxy on the Host
+```
+
+> In `compact` and `ha`, virtlab installs with `platform: baremetal`: the API
+> answers on a keepalived-backed **API VIP**, and `*.apps` resolves to an
+> **Ingress Load Balancer** (HAProxy on the Hypervisor) that spreads traffic
+> across every router node. `sno` stays on `platform: none` and needs neither.
+
+### 3. Deploy the Lab
+
+```bash
+./virtlab up
+```
+
+*(Use `./virtlab up -y` to run non-interactively without prompt pauses.)*
+
+### 4. Check Lab Status
+
+Inspect running tunnels, hypervisor connectivity, and workstation state:
+
+```bash
+./virtlab status
+```
+
+### 5. Access the Cluster
+
+Once provisioned, your kubeconfig is automatically synced:
+
+```bash
+export KUBECONFIG=~/.kube/config.<clusterName>
+
+# Query cluster nodes
+oc get nodes
+
+# Access web console
+open https://console-openshift-console.apps.<clusterName>.<baseDomain>
+```
+
+### 6. Teardown
+
+To destroy the cluster, clean up VMs and storage pools, and revert local DNS / tunnel configs:
+
+```bash
+./virtlab down
+```
+
+---
+
+## Topology Presets
+
+| Preset | Total Nodes | Default Specs per Node | Recommended Hypervisor Headroom |
+|---|---|---|---|
+| **`sno`** | 1 master | 8 vCPU, 16 GiB RAM, 120 GiB Disk | 12+ vCPUs, 32 GiB RAM, 200 GiB Disk |
+| **`compact`** | 3 masters | 4 vCPU, 16 GiB RAM, 100 GiB Disk | 16+ vCPUs, 64 GiB RAM, 400 GiB Disk |
+| **`ha`** | 3 masters + 2 workers | Masters: 4 vCPU, 16 GiB RAM<br>Workers: 2 vCPU, 8 GiB RAM | 24+ vCPUs, 96 GiB RAM, 600 GiB Disk |
+
+Hardware parameters can be customized per node role via `controlPlaneOverrides` and `workerOverrides` in `config.yaml`.
+
+### Ingress scaling
+
+In `compact` and `ha`, the Host-side HAProxy load-balances `*.apps` across every
+node running a router, and virtlab reconciles the default `IngressController` to
+one router per ingress-capable node. Because the LB is active/active (unlike the
+keepalived-held API VIP), the ingress set can grow. **Adding a node to an
+already-installed cluster is day-2 work that is not automated yet** — it needs
+an agent `add-nodes` flow, an HAProxy backend refresh, and an
+`IngressController` replica refresh.
+
+---
+
+## License
+
+Apache-2.0 (see [LICENSE](LICENSE))

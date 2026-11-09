@@ -1,0 +1,50 @@
+name: Feature request
+description: Capture a raw idea for a new capability or improvement. Not a defect, not a commitment, not a plan.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A feature request is a **raw, non-committal idea**. It is not a defect, an approved commitment, or a plan.
+        Do not include acceptance criteria, estimates, priorities, or solution design.
+        Search existing issues and project drafts before filing.
+
+  - type: textarea
+    id: raw-idea
+    attributes:
+      label: Raw idea
+      description: State the idea exactly as raised. Do not refine, design, or scope it.
+      placeholder: It would be useful if ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What prompted this idea? What were you doing when it came up?
+    validations:
+      required: true
+
+  - type: textarea
+    id: provenance
+    attributes:
+      label: Provenance
+      description: Who raised it, when, and where it came from. Keep the bullet format.
+      value: |
+        - Raised by:
+        - Captured:
+        - Source:
+    validations:
+      required: true
+
+  - type: textarea
+    id: open-questions
+    attributes:
+      label: Open questions
+      description: Unresolved questions only. Leave blank if none; do not add acceptance criteria or estimates.
+      placeholder: |
+        - Is ...?
+        - Should ...?
+    validations:
+      required: false

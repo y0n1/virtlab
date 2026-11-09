@@ -1,0 +1,50 @@
+version: "2"
+run:
+  modules-download-mode: readonly
+linters:
+  enable:
+    - misspell
+    - revive
+    - unconvert
+    - whitespace
+  settings:
+    govet:
+      disable:
+        - fieldalignment
+        - shadow
+      enable-all: true
+    misspell:
+      locale: US
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+        - name: blank-imports
+          disabled: false
+  exclusions:
+    generated: lax
+    paths:
+      - sdks
+      - assets
+      - third_party$
+      - builtin$
+      - examples$
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gofmt
+  settings:
+    gofmt:
+      simplify: true
+  exclusions:
+    generated: lax
+    paths:
+      - sdks
+      - assets
+      - third_party$
+      - builtin$
+      - examples$
