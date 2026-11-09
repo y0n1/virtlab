@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -110,6 +111,79 @@ func TestEnsurePulumiPassphrase(t *testing.T) {
 	EnsurePulumiPassphrase()
 	if val := os.Getenv("PULUMI_CONFIG_PASSPHRASE"); val != "custom-secret" {
 		t.Errorf("expected custom-secret to be preserved, got '%s'", val)
+	}
+}
+
+func TestEnsurePulumiBackend_DefaultsToLocalBackend(t *testing.T) {
+	t.Setenv("PULUMI_BACKEND_URL", "")
+	t.Setenv("PULUMI_ACCESS_TOKEN", "")
+	stubStoredCredentials(t, workspace.Credentials{}, nil)
+
+	EnsurePulumiBackend()
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir failed: %v", err)
+	}
+	want := "file://" + filepath.ToSlash(home)
+	if got := os.Getenv("PULUMI_BACKEND_URL"); got != want {
+		t.Errorf("expected PULUMI_BACKEND_URL %q, got %q", want, got)
+	}
+}
+
+func TestEnsurePulumiBackend_PreservesExplicitBackendURL(t *testing.T) {
+	const explicit = "https://api.pulumi.example.com"
+	t.Setenv("PULUMI_BACKEND_URL", explicit)
+
+	EnsurePulumiBackend()
+
+	if got := os.Getenv("PULUMI_BACKEND_URL"); got != explicit {
+		t.Errorf("expected explicit backend %q to be preserved, got %q", explicit, got)
+	}
+}
+
+func TestEnsurePulumiBackend_PreservesAccessTokenLogin(t *testing.T) {
+	t.Setenv("PULUMI_BACKEND_URL", "")
+	t.Setenv("PULUMI_ACCESS_TOKEN", "pul-test-token")
+
+	EnsurePulumiBackend()
+
+	if got := os.Getenv("PULUMI_BACKEND_URL"); got != "" {
+		t.Errorf("expected no default when PULUMI_ACCESS_TOKEN is set, got %q", got)
+	}
+}
+
+func TestEnsurePulumiBackend_PreservesStoredLogin(t *testing.T) {
+	t.Setenv("PULUMI_BACKEND_URL", "")
+	t.Setenv("PULUMI_ACCESS_TOKEN", "")
+	stubStoredCredentials(t, workspace.Credentials{Current: "file:///home/other"}, nil)
+
+	EnsurePulumiBackend()
+
+	if got := os.Getenv("PULUMI_BACKEND_URL"); got != "" {
+		t.Errorf("expected stored login to be preserved, got PULUMI_BACKEND_URL %q", got)
+	}
+}
+
+func TestEnsurePulumiBackend_CredentialsReadErrorLeavesBackendUnset(t *testing.T) {
+	t.Setenv("PULUMI_BACKEND_URL", "")
+	t.Setenv("PULUMI_ACCESS_TOKEN", "")
+	stubStoredCredentials(t, workspace.Credentials{}, errors.New("credentials unreadable"))
+
+	EnsurePulumiBackend()
+
+	if got := os.Getenv("PULUMI_BACKEND_URL"); got != "" {
+		t.Errorf("expected no default when credentials cannot be read, got %q", got)
+	}
+}
+
+// stubStoredCredentials replaces the credentials seam for the duration of a test.
+func stubStoredCredentials(t *testing.T, creds workspace.Credentials, err error) {
+	t.Helper()
+	orig := getStoredCredentialsFn
+	t.Cleanup(func() { getStoredCredentialsFn = orig })
+	getStoredCredentialsFn = func() (workspace.Credentials, error) {
+		return creds, err
 	}
 }
 

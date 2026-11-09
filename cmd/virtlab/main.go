@@ -47,6 +47,7 @@ func main() {
 
 	workstation.EnsureLocalBinInPATH()
 	infrastructure.EnsurePulumiPassphrase()
+	infrastructure.EnsurePulumiBackend()
 
 	var err error
 	switch subcommand {
