@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -197,7 +198,7 @@ func EnsureToolDependencies(state *State, stateMgr *StateManager, osInfo Info) e
 // UninstallManagedDependencies checks if any tool-managed binaries were installed by virtlab,
 // and uninstalls them to restore the workstation to its pre-lab state.
 func UninstallManagedDependencies(state *State, stateMgr *StateManager, osInfo Info) error {
-	if !state.HasManagedPackages() {
+	if state == nil || !state.HasManagedPackages() {
 		return nil
 	}
 
@@ -210,22 +211,34 @@ func UninstallManagedDependencies(state *State, stateMgr *StateManager, osInfo I
 			toUninstall = append(toUninstall, name)
 		}
 	}
+	sort.Strings(toUninstall)
 
+	var uninstallErrs []error
 	for _, name := range toUninstall {
 		pkgInfo := state.ManagedPackages[name]
 		fmt.Printf("  • Uninstalling '%s' (method: %s, path: %s)...\n", name, pkgInfo.InstallMethod, pkgInfo.BinaryPath)
 
 		if err := uninstallToolFn(name, pkgInfo, osInfo); err != nil {
 			fmt.Printf("⚠ Warning: failed to uninstall '%s': %v (please remove manually)\n", name, err)
+			uninstallErrs = append(uninstallErrs, fmt.Errorf("uninstall '%s': %w", name, err))
 		} else {
 			fmt.Printf("✔ Cleanly uninstalled '%s'\n", name)
+			state.RecordUninstalled(name)
 		}
-
-		state.RecordUninstalled(name)
 	}
 
-	if err := stateMgr.Save(state); err != nil {
-		return fmt.Errorf("failed to update state after uninstallation: %w", err)
+	if stateMgr != nil {
+		if err := stateMgr.Save(state); err != nil {
+			saveErr := fmt.Errorf("failed to update state after uninstallation: %w", err)
+			if len(uninstallErrs) > 0 {
+				return errors.Join(append(uninstallErrs, saveErr)...)
+			}
+			return saveErr
+		}
+	}
+
+	if len(uninstallErrs) > 0 {
+		return errors.Join(uninstallErrs...)
 	}
 
 	return nil
