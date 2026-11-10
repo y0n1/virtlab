@@ -69,10 +69,10 @@
    ```
 
    `Expected:` Release title matches `$VERSION`, changelog displays grouped commit notes, and assets include:
-   - `virtlab_<version>_darwin_arm64.tar.gz`
-   - `virtlab_<version>_darwin_amd64.tar.gz`
-   - `virtlab_<version>_linux_arm64.tar.gz`
-   - `virtlab_<version>_linux_amd64.tar.gz`
+   - `virtlab_<version>_darwin_arm64.tar.gz` and `virtlab_darwin_arm64.tar.gz`
+   - `virtlab_<version>_darwin_amd64.tar.gz` and `virtlab_darwin_amd64.tar.gz`
+   - `virtlab_<version>_linux_arm64.tar.gz` and `virtlab_linux_arm64.tar.gz`
+   - `virtlab_<version>_linux_amd64.tar.gz` and `virtlab_linux_amd64.tar.gz`
    - `checksums.txt`
 
 2. **Verify downloaded asset:**
