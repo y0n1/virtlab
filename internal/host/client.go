@@ -50,6 +50,8 @@ type SSHClient struct {
 	User string
 }
 
+var _ CommandRunner = (*SSHClient)(nil)
+
 // NewSSHClient creates an SSH executor for user@host.
 func NewSSHClient(user, host string) *SSHClient {
 	return &SSHClient{

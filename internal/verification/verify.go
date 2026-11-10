@@ -24,12 +24,25 @@ import (
 type Verifier struct {
 	Config *config.Config
 	Host   *host.Host
+	Runner host.CommandRunner
 	Output io.Writer
 
 	// lookupHost overrides net.LookupHost in tests.
 	lookupHost func(string) ([]string, error)
 	// httpClient overrides the probe client in tests.
 	httpClient *http.Client
+	// ocCommand overrides workstation oc execution in tests.
+	ocCommand func(ctx context.Context, kubeconfig string, args ...string) ([]byte, error)
+}
+
+func (v *Verifier) runner() host.CommandRunner {
+	if v != nil && v.Runner != nil {
+		return v.Runner
+	}
+	if v != nil && v.Host != nil && v.Host.Client != nil {
+		return v.Host.Client
+	}
+	return nil
 }
 
 func (v *Verifier) lookup(host string) ([]string, error) {
@@ -91,9 +104,23 @@ func (v *Verifier) expectedDNS() (apiIP, appsIP string, err error) {
 
 // NewVerifier creates a new verification service.
 func NewVerifier(cfg *config.Config, h *host.Host) *Verifier {
+	var runner host.CommandRunner
+	if h != nil && h.Client != nil {
+		runner = h.Client
+	}
 	return &Verifier{
 		Config: cfg,
 		Host:   h,
+		Runner: runner,
+		Output: os.Stdout,
+	}
+}
+
+// NewVerifierWithRunner creates a new verification service with an explicit CommandRunner.
+func NewVerifierWithRunner(cfg *config.Config, runner host.CommandRunner) *Verifier {
+	return &Verifier{
+		Config: cfg,
+		Runner: runner,
 		Output: os.Stdout,
 	}
 }
@@ -167,14 +194,24 @@ func (v *Verifier) VerifyAll(ctx context.Context) error {
 	if topo, err := v.Config.EffectiveTopology(); err == nil {
 		expectedNodes = topo.ControlPlaneReplicas + topo.WorkerReplicas
 	}
-	if _, err := exec.LookPath("oc"); err != nil {
-		return fmt.Errorf("'oc' CLI is required for Phase 4 verification; install it or add it to PATH")
-	}
-	fmt.Printf("[Verification] Running 'oc get nodes' smoke test...\n")
-	cmd := exec.Command("oc", "--kubeconfig", localKubeconfig, "get", "nodes")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("'oc get nodes' failed: %w\n%s", err, string(out))
+	var out []byte
+	if v.ocCommand != nil {
+		var err error
+		out, err = v.ocCommand(ctx, localKubeconfig, "get", "nodes")
+		if err != nil {
+			return fmt.Errorf("'oc get nodes' failed: %w\n%s", err, string(out))
+		}
+	} else {
+		if _, err := exec.LookPath("oc"); err != nil {
+			return fmt.Errorf("'oc' CLI is required for Phase 4 verification; install it or add it to PATH")
+		}
+		fmt.Printf("[Verification] Running 'oc get nodes' smoke test...\n")
+		cmd := exec.CommandContext(ctx, "oc", "--kubeconfig", localKubeconfig, "get", "nodes")
+		var err error
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("'oc get nodes' failed: %w\n%s", err, string(out))
+		}
 	}
 	fmt.Printf("\n%s\n", string(out))
 	if err := verifyNodeReadiness(string(out), expectedNodes); err != nil {
@@ -262,17 +299,21 @@ func verifyNodeReadiness(output string, expected int) error {
 }
 
 func (v *Verifier) syncCredentials() (string, string, error) {
+	r := v.runner()
+	if r == nil {
+		return "", "", fmt.Errorf("no host command runner configured")
+	}
 	remoteDir := fmt.Sprintf("%s/auth", v.Config.InstallDir())
 
 	// Fetch kubeadmin password
-	password, err := v.Host.Client.Run(fmt.Sprintf("cat %s/kubeadmin-password", remoteDir))
+	password, err := r.Run(fmt.Sprintf("cat %s/kubeadmin-password", remoteDir))
 	if err != nil {
 		return "", "", fmt.Errorf("read kubeadmin password: %w", err)
 	}
 	cleanPassword := strings.TrimSpace(password)
 
 	// Fetch kubeconfig content
-	kubeconfigData, err := v.Host.Client.Run(fmt.Sprintf("cat %s/kubeconfig", remoteDir))
+	kubeconfigData, err := r.Run(fmt.Sprintf("cat %s/kubeconfig", remoteDir))
 	if err != nil {
 		return "", "", fmt.Errorf("read kubeconfig: %w", err)
 	}

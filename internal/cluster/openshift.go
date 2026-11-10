@@ -17,23 +17,51 @@ import (
 type OpenShiftManager struct {
 	Config *config.Config
 	Host   *host.Host
+	Runner host.CommandRunner
 
-	// runCommand overrides Host.Client.Run in tests.
+	// runCommand overrides runner.Run in tests.
 	runCommand func(string) (string, error)
+}
+
+func (m *OpenShiftManager) runner() host.CommandRunner {
+	if m != nil && m.Runner != nil {
+		return m.Runner
+	}
+	if m != nil && m.Host != nil && m.Host.Client != nil {
+		return m.Host.Client
+	}
+	return nil
 }
 
 func (m *OpenShiftManager) run(command string) (string, error) {
 	if m.runCommand != nil {
 		return m.runCommand(command)
 	}
-	return m.Host.Client.Run(command)
+	r := m.runner()
+	if r == nil {
+		return "", fmt.Errorf("no host command runner configured")
+	}
+	return r.Run(command)
 }
 
 // NewOpenShiftManager creates an OpenShift cluster manager.
 func NewOpenShiftManager(cfg *config.Config, h *host.Host) *OpenShiftManager {
+	var runner host.CommandRunner
+	if h != nil && h.Client != nil {
+		runner = h.Client
+	}
 	return &OpenShiftManager{
 		Config: cfg,
 		Host:   h,
+		Runner: runner,
+	}
+}
+
+// NewOpenShiftManagerWithRunner creates an OpenShift cluster manager with an explicit CommandRunner.
+func NewOpenShiftManagerWithRunner(cfg *config.Config, runner host.CommandRunner) *OpenShiftManager {
+	return &OpenShiftManager{
+		Config: cfg,
+		Runner: runner,
 	}
 }
 
@@ -234,6 +262,11 @@ func (m *OpenShiftManager) Install(ctx context.Context) error {
 		return nil
 	}
 
+	r := m.runner()
+	if r == nil {
+		return fmt.Errorf("no host command runner configured")
+	}
+
 	// Compute static node leases (needed for VM boot/eject steps below)
 	leases, err := infrastructure.ComputeNodeLeases(m.Config)
 	if err != nil {
@@ -254,7 +287,7 @@ func (m *OpenShiftManager) Install(ctx context.Context) error {
 	fmt.Printf("[OpenShift] Writing install-config.yaml and agent-config.yaml...\n")
 	setupScript := m.BuildSetupScript(dir, ic, ac)
 
-	if _, err := m.Host.Client.RunScript(setupScript); err != nil {
+	if _, err := r.RunScript(setupScript); err != nil {
 		return fmt.Errorf("manifest setup failed: %w", err)
 	}
 
@@ -262,7 +295,7 @@ func (m *OpenShiftManager) Install(ctx context.Context) error {
 	fmt.Printf("[OpenShift] Building bootable Agent ISO (openshift-install agent create image)...\n")
 	buildIsoScript := m.BuildCreateIsoScript(dir)
 
-	if _, err := m.Host.Client.RunScript(buildIsoScript); err != nil {
+	if _, err := r.RunScript(buildIsoScript); err != nil {
 		return fmt.Errorf("agent ISO creation failed: %w", err)
 	}
 	fmt.Printf("✔ Agent ISO built successfully.\n")
@@ -278,7 +311,7 @@ DOM='%s'
 virsh change-media "$DOM" sda --insert --source "$ISO" --config || true
 virsh start "$DOM" || true
 `, dir, domName)
-		if _, err := m.Host.Client.RunScript(bootScript); err != nil {
+		if _, err := r.RunScript(bootScript); err != nil {
 			return fmt.Errorf("start node '%s': %w", domName, err)
 		}
 	}
@@ -290,17 +323,17 @@ virsh start "$DOM" || true
 
 	waitScript := m.BuildWaitScript(dir)
 
-	waitErr := m.Host.Client.RunScriptStream(ctx, waitScript, os.Stdout, os.Stderr)
+	waitErr := r.RunScriptStream(ctx, waitScript, os.Stdout, os.Stderr)
 
 	// 7. Eject ISO after install (both live and persistent config)
 	for _, l := range leases {
 		domName := fmt.Sprintf("%s-%s", m.Config.ClusterName, l.Name)
-		_, _ = m.Host.Client.Run(m.BuildMediaEjectCommand(domName))
+		_, _ = r.Run(m.BuildMediaEjectCommand(domName))
 	}
 
 	// 8. Remove the bootstrap ISO and restrict installer directory permissions
 	cleanupScript := m.BuildIsoCleanupScript(dir)
-	if _, err := m.Host.Client.RunScript(cleanupScript); err != nil {
+	if _, err := r.RunScript(cleanupScript); err != nil {
 		fmt.Printf("⚠ Warning: failed to clean up ISO or reseal directory on host: %v\n", err)
 	}
 
@@ -400,7 +433,7 @@ func (m *OpenShiftManager) checkResume() (bool, error) {
 // flaky probe must not block recovery. Install re-checks and aborts safely
 // before touching the install tree.
 func (m *OpenShiftManager) EnsureDeclarationCompatible() error {
-	if m.Host == nil && m.runCommand == nil {
+	if m.Host == nil && m.Runner == nil && m.runCommand == nil {
 		return nil
 	}
 
@@ -419,7 +452,7 @@ func (m *OpenShiftManager) EnsureDeclarationCompatible() error {
 
 // probeResume runs installProbeScript on the Host and parses the result.
 func (m *OpenShiftManager) probeResume() (*resumeProbe, error) {
-	if m.runCommand == nil && m.Host == nil {
+	if m.runCommand == nil && m.runner() == nil {
 		return nil, fmt.Errorf("no Host client configured")
 	}
 	script := fmt.Sprintf(installProbeScript, m.InstallDir(), installStateFile, m.Config.APIHost())
@@ -491,6 +524,10 @@ func (m *OpenShiftManager) verifyAppliedState(installed *InstallState) error {
 // persistInstallState writes the applied declaration after a successful
 // install. The write is atomic and restricted to the owner.
 func (m *OpenShiftManager) persistInstallState() error {
+	r := m.runner()
+	if r == nil {
+		return fmt.Errorf("no host command runner configured")
+	}
 	desired, err := m.DesiredInstallState()
 	if err != nil {
 		return err
@@ -500,7 +537,7 @@ func (m *OpenShiftManager) persistInstallState() error {
 		return err
 	}
 	script := BuildPersistStateScript(m.InstallDir(), body)
-	if _, err := m.Host.Client.RunScript(script); err != nil {
+	if _, err := r.RunScript(script); err != nil {
 		return fmt.Errorf("write %s: %w", installStateFile, err)
 	}
 	return nil
@@ -554,8 +591,12 @@ func (m *OpenShiftManager) EnsureIngressReplicas(ctx context.Context) error {
 		return nil
 	}
 
+	r := m.runner()
+	if r == nil {
+		return fmt.Errorf("no host command runner configured")
+	}
 	script := BuildIngressReplicasScript(m.InstallDir(), replicas)
-	if _, err := m.Host.Client.RunScriptContext(ctx, script); err != nil {
+	if _, err := r.RunScriptContext(ctx, script); err != nil {
 		return fmt.Errorf("reconcile ingress controller replicas: %w", err)
 	}
 	fmt.Printf("✔ Ingress controller reconciled to %d router replicas\n", replicas)

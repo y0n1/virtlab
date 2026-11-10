@@ -46,7 +46,7 @@ func parseClusterPlatform(out string) (string, bool) {
 // EnsurePlatformCompatible fails when an existing cluster was installed with a
 // platform that the selected preset cannot change in place.
 func (m *OpenShiftManager) EnsurePlatformCompatible() error {
-	if m.Host == nil && m.runCommand == nil {
+	if m.Host == nil && m.Runner == nil && m.runCommand == nil {
 		return nil
 	}
 
