@@ -78,7 +78,7 @@ func ResolvePullSecret(cfg *config.Config) ([]byte, error) {
 			return nil, fmt.Errorf("read pullSecretFile '%s': %w", p, err)
 		}
 		secretBytes := bytes.TrimSpace(data)
-		if err := validatePullSecretJSON(secretBytes); err != nil {
+		if err := config.ValidatePullSecret(secretBytes); err != nil {
 			return nil, fmt.Errorf("invalid pull secret in '%s': %w", p, err)
 		}
 		return secretBytes, nil
@@ -95,7 +95,7 @@ func ResolvePullSecret(cfg *config.Config) ([]byte, error) {
 		out, err := ocmCommandFn(nil)
 		if err == nil {
 			secretBytes := bytes.TrimSpace(out)
-			if err := validatePullSecretJSON(secretBytes); err == nil {
+			if err := config.ValidatePullSecret(secretBytes); err == nil {
 				fmt.Printf("✔ Successfully retrieved pull secret via OCM\n")
 				return secretBytes, nil
 			}
@@ -162,7 +162,7 @@ func resolvePullSecretWithToken(token string) ([]byte, error) {
 	}
 
 	secretBytes := bytes.TrimSpace(out)
-	if err := validatePullSecretJSON(secretBytes); err != nil {
+	if err := config.ValidatePullSecret(secretBytes); err != nil {
 		return nil, fmt.Errorf("OCM authentication with '%s' returned an invalid pull secret: %w", OCMTokenEnvVar, err)
 	}
 	fmt.Printf("✔ Successfully retrieved pull secret via OCM\n")
@@ -267,15 +267,5 @@ func redactToken(s, token string) string {
 }
 
 func validatePullSecretJSON(data []byte) error {
-	if len(data) == 0 {
-		return fmt.Errorf("pull secret data is empty")
-	}
-	var parsed map[string]any
-	if err := json.Unmarshal(data, &parsed); err != nil {
-		return fmt.Errorf("pull secret is not valid JSON: %w", err)
-	}
-	if _, ok := parsed["auths"]; !ok {
-		return fmt.Errorf("pull secret JSON does not contain 'auths' section")
-	}
-	return nil
+	return config.ValidatePullSecret(data)
 }

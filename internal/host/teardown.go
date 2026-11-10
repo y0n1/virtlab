@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/y0n1/virtlab/internal/config"
@@ -12,39 +11,19 @@ import (
 // ClusterDomainPattern returns the regular expression pattern matching libvirt guest domains
 // strictly belonging to clusterName (e.g. ^<clusterName>-(master|worker)-[0-9]+$).
 func ClusterDomainPattern(clusterName string) string {
-	return fmt.Sprintf(`^%s-(master|worker)-[0-9]+$`, regexp.QuoteMeta(clusterName))
+	return config.ClusterDomainPattern(clusterName)
 }
 
 // IsClusterGuestDomain reports whether domain matches the expected guest domain naming convention
 // for the given clusterName.
 func IsClusterGuestDomain(clusterName, domain string) bool {
-	if clusterName == "" || domain == "" {
-		return false
-	}
-	re, err := regexp.Compile(ClusterDomainPattern(clusterName))
-	if err != nil {
-		return false
-	}
-	return re.MatchString(domain)
+	return config.IsClusterGuestDomain(clusterName, domain)
 }
 
 // FilterClusterDomains returns all domain names from the input slice that match the expected
 // guest domain pattern for clusterName.
 func FilterClusterDomains(domains []string, clusterName string) []string {
-	if clusterName == "" || len(domains) == 0 {
-		return nil
-	}
-	re, err := regexp.Compile(ClusterDomainPattern(clusterName))
-	if err != nil {
-		return nil
-	}
-	var matched []string
-	for _, dom := range domains {
-		if re.MatchString(dom) {
-			matched = append(matched, dom)
-		}
-	}
-	return matched
+	return config.FilterClusterDomains(domains, clusterName)
 }
 
 // TeardownContext cleans up cluster-specific resources on the Host hypervisor with context:

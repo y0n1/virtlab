@@ -303,7 +303,7 @@ func (m *OpenShiftManager) Install(ctx context.Context) error {
 	// 5. Attach ISO to nodes and start VMs
 	fmt.Printf("[OpenShift] Attaching Agent ISO and powering on cluster nodes...\n")
 	for _, l := range leases {
-		domName := fmt.Sprintf("%s-%s", m.Config.ClusterName, l.Name)
+		domName := m.Config.DomainName(l.Name)
 		bootScript := fmt.Sprintf(`
 DIR='%s'
 ISO="$DIR/agent.x86_64.iso"
@@ -327,7 +327,7 @@ virsh start "$DOM" || true
 
 	// 7. Eject ISO after install (both live and persistent config)
 	for _, l := range leases {
-		domName := fmt.Sprintf("%s-%s", m.Config.ClusterName, l.Name)
+		domName := m.Config.DomainName(l.Name)
 		_, _ = r.Run(m.BuildMediaEjectCommand(domName))
 	}
 
@@ -630,7 +630,7 @@ IC_TMP="$DIR/.install-config.yaml.new"
 cat <<'EOF' > "$IC_TMP"
 %s
 EOF
-python3 - /root/pull-secret.json "$IC_TMP" <<'PYEOF'
+python3 - %s "$IC_TMP" <<'PYEOF'
 import json, sys, os
 raw = open(sys.argv[1]).read()
 ps = json.dumps(json.dumps(json.loads(raw)))
@@ -667,7 +667,7 @@ chmod 0600 "$DIR/install-config.yaml" "$DIR/agent-config.yaml"
 if [ "$CHANGED" -eq 1 ]; then
   rm -f "$DIR/.openshift_install_state.json"
 fi
-`, dir, ic, ac)
+`, dir, ic, config.DefaultRemotePullSecretPath, ac)
 }
 
 // BuildCreateIsoScript constructs the remote bash script that invokes openshift-install

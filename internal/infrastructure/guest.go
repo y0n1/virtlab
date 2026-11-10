@@ -37,8 +37,8 @@ func BuildGuests(ctx *pulumi.Context, cfg *config.Config, pool *libvirt.Pool, ne
 			settings = topo.WorkerSettings
 		}
 
-		volName := fmt.Sprintf("%s-%s.qcow2", cfg.ClusterName, lease.Name)
-		domName := fmt.Sprintf("%s-%s", cfg.ClusterName, lease.Name)
+		domName := cfg.DomainName(lease.Name)
+		volName := fmt.Sprintf("%s.qcow2", domName)
 		diskPath := fmt.Sprintf("%s/%s", cfg.StoragePoolDir(), volName)
 		serialLog := fmt.Sprintf("%s/%s-serial.log", cfg.LogsDir(), lease.Name)
 
