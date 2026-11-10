@@ -12,7 +12,7 @@ config.yaml
 **/license.zip
 
 # Local git worktrees
-.worktrees/
+.worktrees
 
 # Build output
 dist/
