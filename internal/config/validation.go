@@ -85,11 +85,26 @@ func (r *ValidationResult) Summary() string {
 	return b.String()
 }
 
-// ValidateStatic performs syntactic, structural, and local file validation on the Config.
-func ValidateStatic(c *Config) *ValidationResult {
-	res := &ValidationResult{}
+// ValidationTier defines the validation scope for different subcommands.
+type ValidationTier int
 
-	// 1. Cluster name
+const (
+	// TierProvisioning performs full validation required to provision a lab (virtlab up).
+	TierProvisioning ValidationTier = iota
+	// TierTeardown performs validation required for teardown and status (virtlab down, virtlab status).
+	TierTeardown
+)
+
+// ValidateStaticTier performs syntactic, structural, and local file validation on the Config
+// tailored to the requested validation tier.
+func ValidateStaticTier(c *Config, tier ValidationTier) *ValidationResult {
+	res := &ValidationResult{}
+	if c == nil {
+		res.AddError("configuration is nil")
+		return res
+	}
+
+	// 1. Cluster name (Identity)
 	name := strings.TrimSpace(c.ClusterName)
 	if name == "" {
 		res.AddError("clusterName is required")
@@ -97,6 +112,8 @@ func ValidateStatic(c *Config) *ValidationResult {
 		res.AddError("clusterName '%s' exceeds 32 characters", name)
 	} else if !rfc1123Regex.MatchString(name) {
 		res.AddError("clusterName '%s' must be lower-case alphanumeric with optional hyphens (RFC 1123)", name)
+	} else if strings.ToLower(name) == "default" {
+		res.AddError("clusterName 'default' is reserved and cannot be used")
 	}
 
 	// 2. Base domain
@@ -104,7 +121,21 @@ func ValidateStatic(c *Config) *ValidationResult {
 		res.AddError("%v", err)
 	}
 
-	// 3. OpenShift version (last 3 Y-streams)
+	// 3. Host SSH configuration (Host identity)
+	if strings.TrimSpace(c.HostSSH.Host) == "" {
+		res.AddError("hostSsh.host is required")
+	}
+	if strings.TrimSpace(c.HostSSH.User) == "" {
+		res.AddError("hostSsh.user is required")
+	}
+
+	// If this is TierTeardown (down/status), only identity and host connection fields are required.
+	if tier == TierTeardown {
+		return res
+	}
+
+	// TierProvisioning (virtlab up): requires full provisioning prerequisites.
+	// 4. OpenShift version (last 3 Y-streams)
 	ver := strings.TrimSpace(c.OCPVersion)
 	if ver == "" {
 		res.AddError("ocpVersion is required")
@@ -126,14 +157,6 @@ func ValidateStatic(c *Config) *ValidationResult {
 					ver, stream, strings.Join(SupportedOpenShiftYStreams, ", "))
 			}
 		}
-	}
-
-	// 4. Host SSH configuration
-	if strings.TrimSpace(c.HostSSH.Host) == "" {
-		res.AddError("hostSsh.host is required")
-	}
-	if strings.TrimSpace(c.HostSSH.User) == "" {
-		res.AddError("hostSsh.user is required")
 	}
 
 	// 5. Host SSH Public Key File (SHOW-STOPPER IF MISSING OR UNREADABLE)
@@ -211,6 +234,18 @@ func ValidateStatic(c *Config) *ValidationResult {
 	}
 
 	return res
+}
+
+// ValidateStatic performs full provisioning validation on the Config.
+// It is equivalent to ValidateStaticTier(c, TierProvisioning).
+func ValidateStatic(c *Config) *ValidationResult {
+	return ValidateStaticTier(c, TierProvisioning)
+}
+
+// ValidateIdentity validates only the identity and host fields needed for teardown and status.
+// It is equivalent to ValidateStaticTier(c, TierTeardown).
+func ValidateIdentity(c *Config) *ValidationResult {
+	return ValidateStaticTier(c, TierTeardown)
 }
 
 // validateCIDRCapacity reports an error when ipNet cannot address the static

@@ -595,3 +595,155 @@ func TestValidateStatic_HardenedFields(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateStaticTier_TeardownAcceptsMinimalIdentity(t *testing.T) {
+	cfg := &Config{
+		ClusterName: "minimal-lab",
+		HostSSH: HostSSHConfig{
+			Host: "192.168.1.100",
+			User: "root",
+		},
+	}
+	cfg.applyDefaults()
+
+	// Teardown must succeed with only identity/host fields valid
+	resTeardown := ValidateStaticTier(cfg, TierTeardown)
+	if !resTeardown.Valid() {
+		t.Fatalf("expected TierTeardown to accept minimal identity config, got errors: %v", resTeardown.Errors)
+	}
+
+	// Identity helper must match
+	resIdentity := ValidateIdentity(cfg)
+	if !resIdentity.Valid() {
+		t.Fatalf("expected ValidateIdentity to accept minimal identity config, got errors: %v", resIdentity.Errors)
+	}
+
+	// Provisioning must reject because ocpVersion and publicKeyFile are missing
+	resProvisioning := ValidateStaticTier(cfg, TierProvisioning)
+	if resProvisioning.Valid() {
+		t.Fatal("expected TierProvisioning to reject minimal identity config, but it succeeded")
+	}
+	var hasOCP, hasKey bool
+	for _, err := range resProvisioning.Errors {
+		if strings.Contains(err, "ocpVersion is required") {
+			hasOCP = true
+		}
+		if strings.Contains(err, "hostSsh.publicKeyFile is required") {
+			hasKey = true
+		}
+	}
+	if !hasOCP || !hasKey {
+		t.Errorf("expected TierProvisioning to require ocpVersion and publicKeyFile, got errors: %v", resProvisioning.Errors)
+	}
+}
+
+func TestValidateStaticTier_TeardownIgnoresMissingPullSecretAndRotatedKeys(t *testing.T) {
+	cfg := &Config{
+		ClusterName:    "drift-lab",
+		BaseDomain:     "example.com",
+		OCPVersion:     "4.18.0", // Unsupported Y-stream
+		PullSecretFile: "/nonexistent/pull-secret.json",
+		HostSSH: HostSSHConfig{
+			Host:          "192.168.1.100",
+			User:          "root",
+			PublicKeyFile: "/nonexistent/id_ed25519.pub",
+		},
+	}
+	cfg.applyDefaults()
+
+	// Teardown ignores missing pull secret, nonexistent key, and unsupported OCP version
+	resTeardown := ValidateStaticTier(cfg, TierTeardown)
+	if !resTeardown.Valid() {
+		t.Fatalf("expected TierTeardown to succeed despite drift, got errors: %v", resTeardown.Errors)
+	}
+
+	// Provisioning must reject all three
+	resProvisioning := ValidateStaticTier(cfg, TierProvisioning)
+	if resProvisioning.Valid() {
+		t.Fatal("expected TierProvisioning to reject drifted config, but it succeeded")
+	}
+	var hasOCP, hasKey, hasPullSecret bool
+	for _, err := range resProvisioning.Errors {
+		if strings.Contains(err, "not supported") {
+			hasOCP = true
+		}
+		if strings.Contains(err, "publicKeyFile") {
+			hasKey = true
+		}
+		if strings.Contains(err, "pullSecretFile") {
+			hasPullSecret = true
+		}
+	}
+	if !hasOCP || !hasKey || !hasPullSecret {
+		t.Errorf("expected TierProvisioning to flag all 3 blockers, got errors: %v", resProvisioning.Errors)
+	}
+}
+
+func TestValidateStaticTier_TeardownEnforcesIdentityAndRejectsDefault(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         *Config
+		errFragment string
+	}{
+		{
+			name: "empty clusterName",
+			cfg: &Config{
+				ClusterName: "",
+				HostSSH:     HostSSHConfig{Host: "192.168.1.100", User: "root"},
+			},
+			errFragment: "clusterName is required",
+		},
+		{
+			name: "reserved clusterName default",
+			cfg: &Config{
+				ClusterName: "default",
+				HostSSH:     HostSSHConfig{Host: "192.168.1.100", User: "root"},
+			},
+			errFragment: "clusterName 'default' is reserved and cannot be used",
+		},
+		{
+			name: "invalid RFC 1123 clusterName",
+			cfg: &Config{
+				ClusterName: "Invalid_Name",
+				HostSSH:     HostSSHConfig{Host: "192.168.1.100", User: "root"},
+			},
+			errFragment: "must be lower-case alphanumeric",
+		},
+		{
+			name: "missing hostSsh.host",
+			cfg: &Config{
+				ClusterName: "valid-cluster",
+				HostSSH:     HostSSHConfig{Host: "", User: "root"},
+			},
+			errFragment: "hostSsh.host is required",
+		},
+		{
+			name: "invalid baseDomain",
+			cfg: &Config{
+				ClusterName: "valid-cluster",
+				BaseDomain:  "bad..domain",
+				HostSSH:     HostSSHConfig{Host: "192.168.1.100", User: "root"},
+			},
+			errFragment: "contains empty label",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			res := ValidateStaticTier(tt.cfg, TierTeardown)
+			if res.Valid() {
+				t.Fatalf("expected TierTeardown to reject %s, but it passed", tt.name)
+			}
+			found := false
+			for _, err := range res.Errors {
+				if strings.Contains(err, tt.errFragment) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected error containing %q, got: %v", tt.errFragment, res.Errors)
+			}
+		})
+	}
+}
