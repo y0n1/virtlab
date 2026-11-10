@@ -85,6 +85,14 @@
 
    `Expected:` Executable outputs `virtlab version vX.Y.Z (commit: <sha>, built: <date>, ...)`.
 
+3. **Verify build provenance attestation:**
+
+   ```bash
+   gh attestation verify /tmp/test-release/virtlab_<version>_darwin_arm64.tar.gz --owner y0n1
+   ```
+
+   `Expected:` Attestation verification succeeds against repository `y0n1/virtlab`.
+
 ## Troubleshooting
 
 - **Release workflow fails on pre-release verification:**

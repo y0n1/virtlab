@@ -13,6 +13,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   verify: # TODO(release): Remove this once we adopt GitFlow.
@@ -66,3 +68,9 @@ jobs:
           args: ${{ inputs.snapshot && 'release --snapshot --clean --skip=publish' || 'release --clean' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        if: ${{ !inputs.snapshot }}
+        with:
+          subject-checksums: ./dist/checksums.txt
