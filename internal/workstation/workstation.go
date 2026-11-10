@@ -3,6 +3,7 @@ package workstation
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/y0n1/virtlab/internal/config"
 )
@@ -141,19 +142,21 @@ func (w *Workstation) Teardown(cfg *config.Config) error {
 		errs = append(errs, fmt.Sprintf("uninstall managed dependencies: %v", err))
 	}
 
-	// 4. Clean up state file if empty
-	if w.State.IsEmpty() {
+	// 4. Clean up state file if empty and no errors occurred
+	if w.State.IsEmpty() && len(errs) == 0 {
 		if err := w.StateMgr.Remove(); err != nil {
 			errs = append(errs, fmt.Sprintf("remove state file: %v", err))
 		} else {
 			fmt.Printf("✔ Workstation state cleaned up (%s removed)\n", w.StateMgr.Path)
 		}
 	} else {
-		_ = w.StateMgr.Save(w.State)
+		if err := w.StateMgr.Save(w.State); err != nil {
+			errs = append(errs, fmt.Sprintf("save state file: %v", err))
+		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("workstation teardown issues:\n  - %s", fmt.Sprintf("%v", errs))
+		return fmt.Errorf("workstation teardown issues:\n  - %s", strings.Join(errs, "\n  - "))
 	}
 	return nil
 }

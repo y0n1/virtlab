@@ -410,3 +410,32 @@ func TestTunnelManager_Stop_ElevationPrompt(t *testing.T) {
 		t.Errorf("expected password prompt notice in output, got:\n%s", out)
 	}
 }
+
+func TestWorkstation_Teardown_FailurePreservesStateFile(t *testing.T) {
+	origUninstall := uninstallToolFn
+	defer func() {
+		uninstallToolFn = origUninstall
+	}()
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	ws := New(tmpDir, statePath)
+	ws.State.RecordInstalled("pulumi", "curl-script", "/tmp/pulumi")
+	if err := ws.StateMgr.Save(ws.State); err != nil {
+		t.Fatalf("failed to save state: %v", err)
+	}
+
+	uninstallToolFn = func(name string, info ManagedBinary, osInfo Info) error {
+		return errors.New("simulated uninstall error")
+	}
+
+	err := ws.Teardown(nil)
+	if err == nil {
+		t.Fatalf("expected teardown to fail when dependency uninstall fails")
+	}
+
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		t.Fatalf("state file should not have been removed on failure")
+	}
+}

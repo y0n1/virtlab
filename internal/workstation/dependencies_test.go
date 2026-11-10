@@ -2,6 +2,7 @@ package workstation
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -381,6 +382,206 @@ func TestUninstallManagedDependencies_Lifecycle(t *testing.T) {
 	}
 	if loaded.HasManagedPackages() {
 		t.Errorf("reloaded state should have no managed packages")
+	}
+}
+
+func TestUninstallManagedDependencies_PartialFailureAndRetry(t *testing.T) {
+	origUninstall := uninstallToolFn
+	defer func() {
+		uninstallToolFn = origUninstall
+	}()
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	sm := NewStateManager(statePath)
+	state := NewEmptyState()
+
+	state.RecordInstalled("pulumi", "curl-script", "/tmp/.pulumi/bin/pulumi")
+	state.RecordInstalled("ocm", "direct-binary", "/tmp/.local/bin/ocm")
+	state.RecordInstalled("sshuttle", "dnf", "/usr/bin/sshuttle")
+	if err := sm.Save(state); err != nil {
+		t.Fatalf("failed to save initial state: %v", err)
+	}
+
+	// Phase 1: Simulate "ocm" uninstallation failure while "pulumi" and "sshuttle" succeed
+	mockErr := errors.New("simulated uninstall failure: permission denied")
+	uninstallToolFn = func(name string, info ManagedBinary, osInfo Info) error {
+		if name == "ocm" {
+			return mockErr
+		}
+		return nil
+	}
+
+	dummyOS := Info{Type: OSLinux, Distro: "fedora", Architecture: "amd64"}
+	err := UninstallManagedDependencies(state, sm, dummyOS)
+	if err == nil {
+		t.Fatalf("expected error from UninstallManagedDependencies on failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "ocm") {
+		t.Errorf("expected error message to mention 'ocm', got: %v", err)
+	}
+
+	// Succeeded tools must be uninstalled and cleared from in-memory state
+	if state.IsInstalledByVirtlab("pulumi") {
+		t.Errorf("pulumi succeeded and should NOT be marked installedByVirtlab")
+	}
+	if state.IsInstalledByVirtlab("sshuttle") {
+		t.Errorf("sshuttle succeeded and should NOT be marked installedByVirtlab")
+	}
+
+	// Failed tool MUST retain its state record in memory
+	if !state.IsInstalledByVirtlab("ocm") {
+		t.Errorf("ocm failed and MUST retain its installedByVirtlab state record")
+	}
+
+	// Failed tool MUST also be retained on disk in state.json
+	loaded, err := sm.Load()
+	if err != nil {
+		t.Fatalf("failed to load state from disk: %v", err)
+	}
+	if loaded.IsInstalledByVirtlab("pulumi") {
+		t.Errorf("pulumi should be removed from on-disk state")
+	}
+	if loaded.IsInstalledByVirtlab("sshuttle") {
+		t.Errorf("sshuttle should be removed from on-disk state")
+	}
+	if !loaded.IsInstalledByVirtlab("ocm") {
+		t.Errorf("ocm must be retained in on-disk state after failed uninstall")
+	}
+
+	// Phase 2: Retry uninstallation on loaded state; now all succeed
+	uninstallCalls := 0
+	uninstallToolFn = func(name string, info ManagedBinary, osInfo Info) error {
+		uninstallCalls++
+		if name != "ocm" {
+			t.Errorf("unexpected tool %q in retry uninstall", name)
+		}
+		return nil
+	}
+
+	retryErr := UninstallManagedDependencies(loaded, sm, dummyOS)
+	if retryErr != nil {
+		t.Fatalf("expected retry to succeed, got: %v", retryErr)
+	}
+	if uninstallCalls != 1 {
+		t.Errorf("expected exactly 1 uninstall call for ocm on retry, got %d", uninstallCalls)
+	}
+
+	if loaded.HasManagedPackages() {
+		t.Errorf("state should have no managed packages after successful retry")
+	}
+
+	reloaded, err := sm.Load()
+	if err != nil {
+		t.Fatalf("failed to reload state after retry: %v", err)
+	}
+	if reloaded.HasManagedPackages() {
+		t.Errorf("on-disk state should have no managed packages after retry")
+	}
+}
+
+func TestUninstallManagedDependencies_MultipleFailuresAggregated(t *testing.T) {
+	origUninstall := uninstallToolFn
+	defer func() {
+		uninstallToolFn = origUninstall
+	}()
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+	sm := NewStateManager(statePath)
+	state := NewEmptyState()
+
+	state.RecordInstalled("pulumi", "curl-script", "/tmp/.pulumi/bin/pulumi")
+	state.RecordInstalled("ocm", "direct-binary", "/tmp/.local/bin/ocm")
+	if err := sm.Save(state); err != nil {
+		t.Fatalf("failed to save state: %v", err)
+	}
+
+	uninstallToolFn = func(name string, info ManagedBinary, osInfo Info) error {
+		return fmt.Errorf("uninstall error for %s", name)
+	}
+
+	dummyOS := Info{Type: OSLinux, Distro: "fedora", Architecture: "amd64"}
+	err := UninstallManagedDependencies(state, sm, dummyOS)
+	if err == nil {
+		t.Fatalf("expected error from UninstallManagedDependencies, got nil")
+	}
+	if !strings.Contains(err.Error(), "pulumi") || !strings.Contains(err.Error(), "ocm") {
+		t.Errorf("expected aggregated error to mention both 'pulumi' and 'ocm', got: %v", err)
+	}
+
+	// Both should remain recorded
+	if !state.IsInstalledByVirtlab("pulumi") || !state.IsInstalledByVirtlab("ocm") {
+		t.Errorf("both failed tools must be retained in memory")
+	}
+
+	loaded, err := sm.Load()
+	if err != nil {
+		t.Fatalf("failed to load state from disk: %v", err)
+	}
+	if !loaded.IsInstalledByVirtlab("pulumi") || !loaded.IsInstalledByVirtlab("ocm") {
+		t.Errorf("both failed tools must be retained in on-disk state")
+	}
+}
+
+func TestWorkstation_Teardown_UninstallFailureRetainsStateAndFails(t *testing.T) {
+	origUninstall := uninstallToolFn
+	defer func() {
+		uninstallToolFn = origUninstall
+	}()
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	ws := New(tmpDir, statePath)
+	ws.State.RecordInstalled("ocm", "brew", "/opt/homebrew/bin/ocm")
+	if err := ws.StateMgr.Save(ws.State); err != nil {
+		t.Fatalf("failed to save initial state: %v", err)
+	}
+
+	// Teardown when uninstall fails
+	uninstallToolFn = func(name string, info ManagedBinary, osInfo Info) error {
+		return errors.New("simulated uninstall failure")
+	}
+
+	err := ws.Teardown(nil)
+	if err == nil {
+		t.Fatalf("expected ws.Teardown to return error on uninstall failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "uninstall managed dependencies") {
+		t.Errorf("expected error to mention 'uninstall managed dependencies', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "ocm") {
+		t.Errorf("expected error to mention 'ocm', got: %v", err)
+	}
+
+	// State file MUST still exist on disk because teardown failed and state is non-empty
+	if _, statErr := os.Stat(statePath); statErr != nil {
+		t.Errorf("expected state file '%s' to be retained on failure, got stat err: %v", statePath, statErr)
+	}
+
+	loaded, loadErr := ws.StateMgr.Load()
+	if loadErr != nil {
+		t.Fatalf("failed to load state file: %v", loadErr)
+	}
+	if !loaded.IsInstalledByVirtlab("ocm") {
+		t.Errorf("expected on-disk state to still retain 'ocm' after failed teardown")
+	}
+
+	// Subsequent retry: when uninstall now succeeds
+	uninstallToolFn = func(name string, info ManagedBinary, osInfo Info) error {
+		return nil
+	}
+
+	wsRetry := New(tmpDir, statePath)
+	retryErr := wsRetry.Teardown(nil)
+	if retryErr != nil {
+		t.Fatalf("expected retry teardown to succeed, got: %v", retryErr)
+	}
+
+	// After successful retry teardown, state file should now be deleted
+	if _, statErr := os.Stat(statePath); !os.IsNotExist(statErr) {
+		t.Errorf("expected state file '%s' to be deleted after clean retry teardown", statePath)
 	}
 }
 
