@@ -29,6 +29,7 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     format: tar.gz
 
+# Predictable checksum manifest (sha256) used for artifact attestations
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
