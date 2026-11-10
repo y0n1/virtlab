@@ -98,7 +98,7 @@ Options:
   --help, -h        Show help`)
 }
 
-func loadConfig(configPath string) (*config.Config, error) {
+func loadConfig(configPath string, tier config.ValidationTier) (*config.Config, error) {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		// Fallback check in current directory: if config.yaml is missing, check config.local.yaml
 		if configPath == "config.yaml" {
@@ -112,13 +112,13 @@ func loadConfig(configPath string) (*config.Config, error) {
 		}
 	}
 
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := config.LoadConfigForTier(configPath, tier)
 	if err != nil {
 		return nil, err
 	}
 
-	// Validate static requirements
-	res := config.ValidateStatic(cfg)
+	// Validate static requirements for requested tier
+	res := config.ValidateStaticTier(cfg, tier)
 	if !res.Valid() {
 		return nil, fmt.Errorf("configuration errors in '%s':\n%s", configPath, res.Summary())
 	}
@@ -171,7 +171,7 @@ func runUp(ctx context.Context, args []string) error {
 		return err
 	}
 
-	cfg, err := loadConfig(*configPath)
+	cfg, err := loadConfig(*configPath, config.TierProvisioning)
 	if err != nil {
 		return err
 	}
@@ -425,7 +425,7 @@ func runDown(ctx context.Context, args []string) error {
 		return err
 	}
 
-	cfg, err := loadConfig(*configPath)
+	cfg, err := loadConfig(*configPath, config.TierTeardown)
 	if err != nil {
 		// If config cannot be loaded, inspect whether workstation state has active resources to clean up
 		workspaceRoot, _ := os.Getwd()
@@ -532,7 +532,7 @@ func runStatus(ctx context.Context, args []string) error {
 	configPath := fs.String("config", "config.yaml", "Path to config file")
 	_ = fs.Parse(args)
 
-	cfg, err := loadConfig(*configPath)
+	cfg, err := loadConfig(*configPath, config.TierTeardown)
 	if err != nil {
 		return err
 	}

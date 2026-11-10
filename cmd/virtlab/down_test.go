@@ -367,3 +367,78 @@ func TestRunTeardownStages_HostTeardownReceivesContext(t *testing.T) {
 		t.Errorf("expected context value %q, got: %v", expectedVal, receivedCtx.Value(expectedKey))
 	}
 }
+
+func TestRunDown_TieredValidation_SucceedsWithoutPullSecretOrKeys(t *testing.T) {
+	origInfra := infraTeardownFn
+	origHost := hostTeardownFn
+	origWs := wsTeardownFn
+	defer func() {
+		infraTeardownFn = origInfra
+		hostTeardownFn = origHost
+		wsTeardownFn = origWs
+	}()
+
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tmpDir)
+
+	// Config with unsupported OCP version, missing pull secret file, and missing public key file
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := `clusterName: test-tier-down
+baseDomain: example.com
+ocpVersion: "4.19.0"
+pullSecretFile: /nonexistent/path/pull-secret.json
+hostSsh:
+  user: root
+  host: 127.0.0.1
+  publicKeyFile: /nonexistent/path/id_ed25519.pub
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	var infraCalled, hostCalled, wsCalled bool
+	infraTeardownFn = func(ctx context.Context, cfg *config.Config) error {
+		infraCalled = true
+		return nil
+	}
+	hostTeardownFn = func(ctx context.Context, cfg *config.Config) error {
+		hostCalled = true
+		return nil
+	}
+	wsTeardownFn = func(cfg *config.Config) error {
+		wsCalled = true
+		return nil
+	}
+
+	err := runDown(context.Background(), []string{"--yes", "--config", cfgPath})
+	if err != nil {
+		t.Fatalf("expected runDown to succeed without pull secret or keys, got: %v", err)
+	}
+
+	if !infraCalled || !hostCalled || !wsCalled {
+		t.Errorf("expected all stages called; got infra=%v, host=%v, ws=%v", infraCalled, hostCalled, wsCalled)
+	}
+}
+
+func TestRunDown_TieredValidation_RejectsDefaultClusterName(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tmpDir)
+
+	cfgPath := filepath.Join(tmpDir, "config.yaml")
+	cfgContent := `clusterName: default
+hostSsh:
+  user: root
+  host: 127.0.0.1
+`
+	if err := os.WriteFile(cfgPath, []byte(cfgContent), 0600); err != nil {
+		t.Fatalf("failed to write config: %v", err)
+	}
+
+	err := runDown(context.Background(), []string{"--yes", "--config", cfgPath})
+	if err == nil {
+		t.Fatal("expected runDown to reject clusterName 'default', but got nil")
+	}
+	if !strings.Contains(err.Error(), "clusterName 'default' is reserved") {
+		t.Errorf("expected error to mention reserved default clusterName, got: %v", err)
+	}
+}

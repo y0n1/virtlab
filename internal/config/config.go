@@ -76,13 +76,24 @@ type NodeSettings struct {
 }
 
 // LoadConfig parses a YAML configuration file from path into a Config struct.
+// It performs full schema validation required for lab provisioning.
 func LoadConfig(path string) (*Config, error) {
+	return LoadConfigForTier(path, TierProvisioning)
+}
+
+// LoadConfigForTier parses a YAML configuration file from path into a Config struct
+// and performs schema validation appropriate for the requested tier.
+// Provisioning runs full schema validation, while Teardown accepts minimal
+// identity/host configs while preserving YAML syntax and known-field checks.
+func LoadConfigForTier(path string, tier ValidationTier) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("config: read file '%s': %w", path, err)
 	}
-	if err := ValidateSchema(data); err != nil {
-		return nil, fmt.Errorf("config: '%s': %w", path, err)
+	if tier == TierProvisioning {
+		if err := ValidateSchema(data); err != nil {
+			return nil, fmt.Errorf("config: '%s': %w", path, err)
+		}
 	}
 	return LoadConfigFromBytes(data)
 }
