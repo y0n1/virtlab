@@ -65,7 +65,7 @@ jobs:
         with:
           distribution: goreleaser
           version: '~> v2'
-          args: ${{ inputs.snapshot && 'release --snapshot --clean --skip=publish' || 'release --clean' }}
+          args: ${{ inputs.snapshot && 'release --snapshot --clean --skip=publish --parallelism=1' || 'release --clean --parallelism=1' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
