@@ -79,7 +79,6 @@ func (h *Host) Teardown(cfg *config.Config) error {
 	return h.TeardownContext(context.Background(), cfg)
 }
 
-
 // Run executes a remote command string on the Host hypervisor.
 func (h *Host) Run(command string) (string, error) {
 	if h == nil || h.Client == nil {
