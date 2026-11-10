@@ -63,15 +63,30 @@ Remote Hypervisor (Linux / KVM / libvirt)
 ### 1. Install `virtlab`
 
 #### Option A: Download Pre-built Binary (Recommended)
-Download the latest tarball matching your OS and architecture from [GitHub Releases](https://github.com/y0n1/virtlab/releases):
+Download the tarball matching your OS and architecture from [GitHub Releases](https://github.com/y0n1/virtlab/releases):
+
+```bash
+# Specify desired release version (or fetch latest release tag):
+VERSION="0.1.0"
+
+# macOS (Apple Silicon arm64)
+curl -sSfLO "https://github.com/y0n1/virtlab/releases/download/v${VERSION}/virtlab_${VERSION}_darwin_arm64.tar.gz"
+tar -xzf "virtlab_${VERSION}_darwin_arm64.tar.gz" && sudo install -m 0755 virtlab /usr/local/bin/virtlab
+
+# Linux (x86_64 amd64)
+curl -sSfLO "https://github.com/y0n1/virtlab/releases/download/v${VERSION}/virtlab_${VERSION}_linux_amd64.tar.gz"
+tar -xzf "virtlab_${VERSION}_linux_amd64.tar.gz" && sudo install -m 0755 virtlab /usr/local/bin/virtlab
+```
+
+Release archives are also published with unversioned aliases (`virtlab_<os>_<arch>.tar.gz`) for direct `latest/download` links:
 
 ```bash
 # macOS (Apple Silicon arm64)
-curl -sLO https://github.com/y0n1/virtlab/releases/latest/download/virtlab_darwin_arm64.tar.gz
+curl -sSfLO https://github.com/y0n1/virtlab/releases/latest/download/virtlab_darwin_arm64.tar.gz
 tar -xzf virtlab_darwin_arm64.tar.gz && sudo install -m 0755 virtlab /usr/local/bin/virtlab
 
 # Linux (x86_64 amd64)
-curl -sLO https://github.com/y0n1/virtlab/releases/latest/download/virtlab_linux_amd64.tar.gz
+curl -sSfLO https://github.com/y0n1/virtlab/releases/latest/download/virtlab_linux_amd64.tar.gz
 tar -xzf virtlab_linux_amd64.tar.gz && sudo install -m 0755 virtlab /usr/local/bin/virtlab
 ```
 

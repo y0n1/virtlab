@@ -24,7 +24,7 @@
    go version
    ```
 
-   `Expected:` OpenSSH >= 8.0 and Go >= 1.22. `go.mod` pins Go 1.26.6 for
+   `Expected:` OpenSSH >= 8.0 and Go >= 1.26. `go.mod` pins Go 1.26.6 for
    source builds.
 
 2. **Create the lab configuration:**
@@ -59,7 +59,7 @@
 ## Verify
 
 - `ssh -V` → OpenSSH >= 8.0.
-- `go version` → Go >= 1.22.
+- `go version` → Go >= 1.26.
 - `virtlab status` → prints `Status for Lab '<clusterName>'` without a
   configuration error.
 
@@ -69,7 +69,7 @@
   path, `virtlab` also falls back to `config.local.yaml`.
 - **`configuration errors in 'config.yaml'`** → fix the entries named in the
   summary; the schema is `examples/config.example.yaml`.
-- **`go` missing or too old** → install Go >= 1.22 from https://go.dev/dl/.
+- **`go` missing or too old** → install Go >= 1.26 from https://go.dev/dl/.
 - **`ssh` missing or too old** → install OpenSSH >= 8.0.
 - **`pulumi: command not found`** → `virtlab up` installs it during Phase 1.
 
