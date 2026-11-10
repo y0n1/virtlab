@@ -1,8 +1,11 @@
-.PHONY: help fetch-libvirt-schemas clean build up down status check vet test lint test-coverage docs-check release-snapshot
+.PHONY: help fetch-libvirt-schemas \
+	clean build install up down status check vet \
+	test lint test-coverage docs-check release-snapshot
 
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 BUILD_DATE ?= $(shell date -u +'%Y-%m-%dT%H:%M:%SZ')
+INSTALL_DIR ?= $(HOME)/.local/bin
 
 LDFLAGS := -s -w \
 	-X github.com/y0n1/virtlab/internal/version.Version=$(VERSION) \
@@ -13,6 +16,11 @@ LDFLAGS := -s -w \
 build:
 	@mkdir -p bin
 	@go build -ldflags "$(LDFLAGS)" -o bin/virtlab ./cmd/virtlab
+
+## Installs virtlab binary into ~/.local/bin by default (overridable via INSTALL_DIR)
+install: build
+	@install -d $(INSTALL_DIR)
+	@install -m 0755 bin/virtlab "$(INSTALL_DIR)/virtlab"
 
 ## Bring up the lab across all 4 phases (up)
 up: build
