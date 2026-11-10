@@ -17,6 +17,7 @@ type Workstation struct {
 	WorkspaceRoot string
 	StateMgr      *StateManager
 	State         *State
+	StateErr      error
 	PullSecret    []byte
 }
 
@@ -37,6 +38,7 @@ func New(workspaceRoot string, customStatePath ...string) *Workstation {
 		WorkspaceRoot: workspaceRoot,
 		StateMgr:      stateMgr,
 		State:         state,
+		StateErr:      err,
 	}
 }
 
@@ -85,7 +87,12 @@ func (w *Workstation) Connect(cfg *config.Config) error {
 	w.State.ClusterName = cfg.ClusterName
 	w.State.BaseDomain = cfg.BaseDomain
 	w.State.GatewayIP = cfg.Network.GatewayIP
-	_ = w.StateMgr.Save(w.State)
+	if w.StateMgr != nil {
+		if err := w.StateMgr.Save(w.State); err != nil {
+			return fmt.Errorf("workstation: save state: %w", err)
+		}
+		w.StateErr = nil
+	}
 
 	// 2. Start sshuttle tunnel
 	if err := w.Tunnel.Start(cfg.HostSSH.User, cfg.HostSSH.Host, cfg.Network.CIDR, cfg.Network.GatewayIP); err != nil {
@@ -94,7 +101,12 @@ func (w *Workstation) Connect(cfg *config.Config) error {
 	running, pid := w.Tunnel.IsRunning()
 	w.State.TunnelActive = running
 	w.State.TunnelPID = pid
-	_ = w.StateMgr.Save(w.State)
+	if w.StateMgr != nil {
+		if err := w.StateMgr.Save(w.State); err != nil {
+			return fmt.Errorf("workstation: save state: %w", err)
+		}
+		w.StateErr = nil
+	}
 
 	return nil
 }
