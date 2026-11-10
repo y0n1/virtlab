@@ -265,7 +265,3 @@ func redactToken(s, token string) string {
 	}
 	return strings.ReplaceAll(s, token, "[REDACTED]")
 }
-
-func validatePullSecretJSON(data []byte) error {
-	return config.ValidatePullSecret(data)
-}
