@@ -291,7 +291,8 @@ func (t *TunnelManager) verifyRecord(rec pidFileRecord) bool {
 
 // isSshuttleProcess reports whether a command line belongs to sshuttle. It
 // accepts both the direct form ("/usr/local/bin/sshuttle ...") and script
-// installs that show the interpreter first ("python3 /path/to/sshuttle ...").
+// installs that show the interpreter first ("python3 /path/to/sshuttle ..."),
+// including macOS Python.framework binaries whose basename is capitalized ("Python").
 func isSshuttleProcess(commandLine string) bool {
 	fields := strings.Fields(commandLine)
 	if len(fields) == 0 {
@@ -300,7 +301,7 @@ func isSshuttleProcess(commandLine string) bool {
 	if filepath.Base(fields[0]) == "sshuttle" {
 		return true
 	}
-	if len(fields) > 1 && strings.HasPrefix(filepath.Base(fields[0]), "python") {
+	if len(fields) > 1 && strings.HasPrefix(strings.ToLower(filepath.Base(fields[0])), "python") {
 		return filepath.Base(fields[1]) == "sshuttle"
 	}
 	return false

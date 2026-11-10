@@ -221,6 +221,8 @@ func TestIsSshuttleProcess(t *testing.T) {
 		{"absolute path", "/usr/local/bin/sshuttle --ns-hosts=10.0.0.1 --daemon", true},
 		{"bare name", "sshuttle --daemon", true},
 		{"python shebang install", "/opt/homebrew/bin/python3 /opt/homebrew/bin/sshuttle --daemon", true},
+		{"macOS Python.framework", "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/Resources/Python.app/Contents/MacOS/Python /opt/homebrew/bin/sshuttle --ns-hosts=192.168.100.1 --to-ns=192.168.100.1:53 -r root@host 192.168.100.0/24 --pidfile /tmp/sshuttle.pid --daemon", true},
+		{"macOS Python.framework non-sshuttle", "/opt/homebrew/Cellar/python@3.15/3.15.2/Frameworks/Python.framework/Versions/3.15/Resources/Python.app/Contents/MacOS/Python /tmp/other.py", false},
 		{"unrelated daemon", "/usr/sbin/cupsd -l", false},
 		{"sshuttle as argument", "vim /tmp/sshuttle", false},
 		{"empty", "", false},
