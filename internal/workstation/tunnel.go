@@ -320,10 +320,11 @@ func readProcessIdentity(pid int) (processIdentity, error) {
 	return processIdentity{CommandLine: commandLine, StartTime: startTime}, nil
 }
 
-// psField returns one field from `ps` for pid. LC_ALL=C keeps the lstart
+// psField returns one field from `ps` for pid. -ww prevents ps from truncating
+// long command lines when stdout is not a TTY; LC_ALL=C keeps the lstart
 // timestamp stable across locales so fingerprints compare reliably.
 func psField(pid int, field string) (string, error) {
-	cmd := exec.Command("ps", "-p", strconv.Itoa(pid), "-o", field)
+	cmd := execTunnelCmdFn("ps", "-ww", "-p", strconv.Itoa(pid), "-o", field)
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	out, err := cmd.Output()
 	if err != nil {

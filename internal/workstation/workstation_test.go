@@ -236,6 +236,17 @@ func TestIsSshuttleProcess(t *testing.T) {
 	}
 }
 
+func TestPsField_UsesWideOutputFlag(t *testing.T) {
+	calls := stubTunnelCommands(t)
+
+	if _, err := psField(12345, "args="); err != nil {
+		t.Fatalf("psField returned error: %v", err)
+	}
+	if len(*calls) != 1 || (*calls)[0] != "ps -ww -p 12345 -o args=" {
+		t.Errorf("expected ps -ww invocation, got: %v", *calls)
+	}
+}
+
 func TestBuildSshuttleArgs(t *testing.T) {
 	args := BuildSshuttleArgs("root", "lab-host", "192.168.100.0/24", "192.168.100.1")
 
