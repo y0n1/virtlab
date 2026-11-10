@@ -431,6 +431,7 @@ func TestWorkstation_Teardown_FailurePreservesStateFile(t *testing.T) {
 	}()
 
 	tmpDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tmpDir)
 	statePath := filepath.Join(tmpDir, "state.json")
 
 	ws := New(tmpDir, statePath)
