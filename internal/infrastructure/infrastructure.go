@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optdestroy"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optup"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -30,6 +32,12 @@ var (
 	getStoredCredentialsFn    = workspace.GetStoredCredentials
 	getStackAllConfigFn       = func(ctx context.Context, stack auto.Stack) (auto.ConfigMap, error) {
 		return stack.GetAllConfig(ctx)
+	}
+	exportStackFn = func(ctx context.Context, stack auto.Stack) (apitype.UntypedDeployment, error) {
+		if stack.Workspace() == nil {
+			return apitype.UntypedDeployment{}, nil
+		}
+		return stack.Export(ctx)
 	}
 	destroyStackFn = func(ctx context.Context, stack auto.Stack, opts ...optdestroy.Option) error {
 		_, err := stack.Destroy(ctx, opts...)
@@ -87,6 +95,12 @@ const (
 	// backendConfigKey records the Pulumi backend that owns the stack, so an
 	// operation cannot silently run against a different backend.
 	backendConfigKey = pulumiProjectName + ":backend"
+
+	// Stack output keys persisted inside the backend deployment state so later
+	// inline Automation API invocations (which use ephemeral WorkDirs) can still
+	// read Host and backend identity without a repo-local Pulumi.<stack>.yaml.
+	libvirtURIOutputKey = "libvirtURI"
+	backendOutputKey    = "backend"
 )
 
 // ActiveBackendURL returns the Pulumi backend URL that the current process will
@@ -130,11 +144,81 @@ func describeLibvirtURI(uri string) string {
 	return strings.TrimSuffix(trimmed, "/system")
 }
 
+type stackSnapshot struct {
+	hasResources bool
+	libvirtURI   string
+	backend      string
+}
+
+// readStackSnapshot reads stack presence and identity from the backend
+// deployment state (exported JSON) and falls back to workspace stack config.
+// Reading the exported deployment ensures separate inline Automation API
+// invocations (each with an ephemeral WorkDir and no Pulumi.<stack>.yaml)
+// still observe the persisted Host, backend, and provisioned resources.
+func readStackSnapshot(ctx context.Context, stack auto.Stack) (stackSnapshot, error) {
+	var snap stackSnapshot
+
+	untyped, err := exportStackFn(ctx, stack)
+	if err != nil {
+		return stackSnapshot{}, fmt.Errorf("infrastructure: export stack state: %w", err)
+	}
+	if len(untyped.Deployment) > 0 {
+		var dep apitype.DeploymentV3
+		if err := json.Unmarshal(untyped.Deployment, &dep); err != nil {
+			return stackSnapshot{}, fmt.Errorf("infrastructure: parse stack deployment: %w", err)
+		}
+		for _, r := range dep.Resources {
+			if r.Type == "pulumi:pulumi:Stack" {
+				if len(r.Outputs) > 0 {
+					snap.hasResources = true
+				}
+				if v, ok := r.Outputs[libvirtURIOutputKey].(string); ok && snap.libvirtURI == "" {
+					snap.libvirtURI = strings.TrimSpace(v)
+				}
+				if v, ok := r.Outputs[backendOutputKey].(string); ok && snap.backend == "" {
+					snap.backend = strings.TrimSpace(v)
+				}
+				continue
+			}
+
+			snap.hasResources = true
+			if r.Type == "pulumi:providers:libvirt" && snap.libvirtURI == "" {
+				if v, ok := r.Inputs["uri"].(string); ok {
+					snap.libvirtURI = strings.TrimSpace(v)
+				}
+			}
+		}
+	}
+
+	stored, err := getStackAllConfigFn(ctx, stack)
+	if err != nil {
+		return stackSnapshot{}, fmt.Errorf("infrastructure: read stack config: %w", err)
+	}
+	if snap.libvirtURI == "" {
+		snap.libvirtURI = strings.TrimSpace(stored[libvirtURIConfigKey].Value)
+	}
+	if snap.backend == "" {
+		snap.backend = strings.TrimSpace(stored[backendConfigKey].Value)
+	}
+
+	return snap, nil
+}
+
 // validateStackIdentity refuses to use a stack whose recorded Host or backend
 // differs from the current invocation. An empty recorded value means the stack
 // predates identity tracking; it is accepted so existing labs keep working.
 func validateStackIdentity(stackName string, stored auto.ConfigMap, wantURI, wantBackend string) error {
-	storedURI := strings.TrimSpace(stored[libvirtURIConfigKey].Value)
+	return validateStackIdentityValues(
+		stackName,
+		stored[libvirtURIConfigKey].Value,
+		stored[backendConfigKey].Value,
+		wantURI,
+		wantBackend,
+	)
+}
+
+func validateStackIdentityValues(stackName, storedURI, storedBackend, wantURI, wantBackend string) error {
+	storedURI = strings.TrimSpace(storedURI)
 	if storedURI != "" && wantURI != "" && storedURI != wantURI {
 		return fmt.Errorf(
 			"%w: Pulumi stack '%s' was created against Host '%s', but config.yaml targets '%s'; refusing to touch state across Hosts.\n"+
@@ -143,7 +227,7 @@ func validateStackIdentity(stackName string, stored auto.ConfigMap, wantURI, wan
 			ErrStackIdentityMismatch, stackName, describeLibvirtURI(storedURI), describeLibvirtURI(wantURI), describeLibvirtURI(storedURI))
 	}
 
-	storedBackend := normalizeBackendURL(stored[backendConfigKey].Value)
+	storedBackend = normalizeBackendURL(storedBackend)
 	activeBackend := normalizeBackendURL(wantBackend)
 	if storedBackend != "" && activeBackend != "" && storedBackend != activeBackend {
 		return fmt.Errorf(
@@ -201,6 +285,10 @@ func (infra *Infrastructure) InlineProgram() pulumi.RunFunc {
 		ctx.Export("networkBridge", net.Bridge.Elem().Name())
 		ctx.Export("poolName", pool.Name)
 		ctx.Export("nodeCount", pulumi.Int(len(guests)))
+		ctx.Export(libvirtURIOutputKey, pulumi.String(infra.libvirtURI()))
+		if activeBackend := ActiveBackendURL(); activeBackend != "" {
+			ctx.Export(backendOutputKey, pulumi.String(activeBackend))
+		}
 
 		return nil
 	}
@@ -252,11 +340,11 @@ func (infra *Infrastructure) StackHasState(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("infrastructure: select stack '%s': %w", stackName, err)
 	}
 
-	stored, err := getStackAllConfigFn(ctx, stack)
+	snap, err := readStackSnapshot(ctx, stack)
 	if err != nil {
-		return false, fmt.Errorf("infrastructure: read stack config: %w", err)
+		return false, err
 	}
-	return strings.TrimSpace(stored[libvirtURIConfigKey].Value) != "", nil
+	return snap.hasResources || snap.libvirtURI != "", nil
 }
 
 // Provision brings up the storage pool, network, and guest VMs using Pulumi Automation API.
@@ -278,13 +366,13 @@ func (infra *Infrastructure) Provision(ctx context.Context) error {
 
 	// Validate before writing anything: a stack bound to another Host or
 	// backend must not be rewritten.
-	stored, err := getStackAllConfigFn(ctx, stack)
+	snap, err := readStackSnapshot(ctx, stack)
 	if err != nil {
-		return fmt.Errorf("infrastructure: read stack config: %w", err)
+		return err
 	}
 	libvirtURI := infra.libvirtURI()
 	activeBackend := ActiveBackendURL()
-	if err := validateStackIdentity(stackName, stored, libvirtURI, activeBackend); err != nil {
+	if err := validateStackIdentityValues(stackName, snap.libvirtURI, snap.backend, libvirtURI, activeBackend); err != nil {
 		return err
 	}
 
@@ -326,11 +414,11 @@ func (infra *Infrastructure) Teardown(ctx context.Context) error {
 		return fmt.Errorf("select stack '%s': %w", stackName, err)
 	}
 
-	stored, err := getStackAllConfigFn(ctx, stack)
+	snap, err := readStackSnapshot(ctx, stack)
 	if err != nil {
-		return fmt.Errorf("infrastructure: read stack config: %w", err)
+		return err
 	}
-	if err := validateStackIdentity(stackName, stored, infra.libvirtURI(), ActiveBackendURL()); err != nil {
+	if err := validateStackIdentityValues(stackName, snap.libvirtURI, snap.backend, infra.libvirtURI(), ActiveBackendURL()); err != nil {
 		return err
 	}
 
