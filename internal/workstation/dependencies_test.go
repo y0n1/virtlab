@@ -531,6 +531,7 @@ func TestWorkstation_Teardown_UninstallFailureRetainsStateAndFails(t *testing.T)
 	}()
 
 	tmpDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tmpDir)
 	statePath := filepath.Join(tmpDir, "state.json")
 
 	ws := New(tmpDir, statePath)
@@ -596,6 +597,7 @@ func TestWorkstation_Teardown_CleansUpState(t *testing.T) {
 	}
 
 	tmpDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tmpDir)
 	statePath := filepath.Join(tmpDir, "state.json")
 
 	ws := New(tmpDir, statePath)
