@@ -68,11 +68,53 @@ type NetworkConfig struct {
 	IngressLBVIP       string `yaml:"-"`
 }
 
+// MaxVirtioDisks is the maximum number of virtio disks (vda through vdz)
+// supported per guest node.
+const MaxVirtioDisks = 26
+
+// DiskSettings defines a single virtual disk attached to a cluster Node.
+type DiskSettings struct {
+	SizeGiB int `yaml:"sizeGib"`
+}
+
 // NodeSettings defines hardware resources allocated to a cluster Node.
 type NodeSettings struct {
-	VCPUs     int `yaml:"vcpus"`
-	MemoryMiB int `yaml:"memoryMib"`
-	DiskGiB   int `yaml:"diskGib"`
+	VCPUs     int            `yaml:"vcpus"`
+	MemoryMiB int            `yaml:"memoryMib"`
+	DiskGiB   int            `yaml:"diskGib,omitempty"`
+	Disks     []DiskSettings `yaml:"disks,omitempty"`
+}
+
+// ResolvedDisks returns the node's ordered disk list (root OS disk first).
+// It falls back to DiskGiB when Disks is empty.
+func (s NodeSettings) ResolvedDisks() []DiskSettings {
+	if len(s.Disks) > 0 {
+		out := make([]DiskSettings, len(s.Disks))
+		copy(out, s.Disks)
+		return out
+	}
+	if s.DiskGiB > 0 {
+		return []DiskSettings{{SizeGiB: s.DiskGiB}}
+	}
+	return nil
+}
+
+// TotalDiskGiB returns the sum of all disks configured for the node in GiB.
+func (s NodeSettings) TotalDiskGiB() int {
+	total := 0
+	for _, d := range s.ResolvedDisks() {
+		total += d.SizeGiB
+	}
+	return total
+}
+
+// RootDiskGiB returns the size in GiB of the node's primary (root OS) disk.
+func (s NodeSettings) RootDiskGiB() int {
+	disks := s.ResolvedDisks()
+	if len(disks) == 0 {
+		return 0
+	}
+	return disks[0].SizeGiB
 }
 
 // LoadConfig parses a YAML configuration file from path into a Config struct.

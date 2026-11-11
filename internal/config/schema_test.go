@@ -132,3 +132,86 @@ unsupportedField: 1
 		t.Fatalf("expected error to name unsupportedField, got: %v", err)
 	}
 }
+
+func TestValidateSchema_DisksList(t *testing.T) {
+	base := `
+clusterName: "demo"
+ocpVersion: "4.22.0"
+hostSsh:
+  host: "192.0.2.10"
+  publicKeyFile: "~/.ssh/id_rsa.pub"
+`
+	t.Run("accepts multiple disks", func(t *testing.T) {
+		data := base + `
+preset: "ha"
+controlPlaneOverrides:
+  disks:
+    - sizeGib: 120
+    - sizeGib: 200
+workerOverrides:
+  disks:
+    - sizeGib: 100
+    - sizeGib: 300
+    - sizeGib: 300
+`
+		if err := ValidateSchema([]byte(data)); err != nil {
+			t.Fatalf("expected valid disks list, got: %v", err)
+		}
+	})
+
+	t.Run("rejects both diskGib and disks", func(t *testing.T) {
+		data := base + `
+controlPlaneOverrides:
+  diskGib: 120
+  disks:
+    - sizeGib: 200
+`
+		if err := ValidateSchema([]byte(data)); err == nil {
+			t.Fatal("expected schema error when both diskGib and disks are specified")
+		}
+	})
+
+	t.Run("rejects empty disks list", func(t *testing.T) {
+		data := base + `
+controlPlaneOverrides:
+  disks: []
+`
+		if err := ValidateSchema([]byte(data)); err == nil {
+			t.Fatal("expected schema error for empty disks list")
+		}
+	})
+
+	t.Run("rejects disk entry without sizeGib", func(t *testing.T) {
+		data := base + `
+controlPlaneOverrides:
+  disks:
+    - {}
+`
+		if err := ValidateSchema([]byte(data)); err == nil {
+			t.Fatal("expected schema error for disk entry missing sizeGib")
+		}
+	})
+
+	t.Run("rejects non-positive sizeGib", func(t *testing.T) {
+		data := base + `
+controlPlaneOverrides:
+  disks:
+    - sizeGib: 0
+`
+		if err := ValidateSchema([]byte(data)); err == nil {
+			t.Fatal("expected schema error for sizeGib: 0")
+		}
+	})
+
+	t.Run("rejects unknown field in disk entry", func(t *testing.T) {
+		data := base + `
+controlPlaneOverrides:
+  disks:
+    - sizeGib: 120
+      bus: "virtio"
+`
+		if err := ValidateSchema([]byte(data)); err == nil {
+			t.Fatal("expected schema error for unknown disk field")
+		}
+	})
+}

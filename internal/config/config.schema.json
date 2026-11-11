@@ -110,9 +110,24 @@
       "type": "string",
       "pattern": "^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$"
     },
+    "diskSettings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sizeGib"],
+      "properties": {
+        "sizeGib": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Disk size in GiB."
+        }
+      }
+    },
     "nodeSettings": {
       "type": "object",
       "additionalProperties": false,
+      "not": {
+        "required": ["diskGib", "disks"]
+      },
       "properties": {
         "vcpus": {
           "type": "integer",
@@ -127,7 +142,16 @@
         "diskGib": {
           "type": "integer",
           "minimum": 1,
-          "description": "Disk size per Node in GiB."
+          "description": "Single root disk size per Node in GiB. Cannot be combined with disks."
+        },
+        "disks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 26,
+          "description": "Ordered list of disks per Node. The first entry is the root OS disk (/dev/vda); additional entries attach as /dev/vdb, /dev/vdc, and so on. Cannot be combined with diskGib.",
+          "items": {
+            "$ref": "#/$defs/diskSettings"
+          }
         }
       }
     }

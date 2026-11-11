@@ -218,10 +218,23 @@ Both objects accept the same keys.
 |---|---|---|---|---|
 | `vcpus` | integer | No | Preset value | Number of vCPUs per Node. |
 | `memoryMib` | integer | No | Preset value | RAM per Node in MiB. For example, `16384` is 16 GiB. |
-| `diskGib` | integer | No | Preset value | Disk size per Node in GiB. |
+| `diskGib` | integer | No | Preset value | Single root disk size per Node in GiB. Cannot be combined with `disks`. |
+| `disks` | list of objects | No | Preset value | Ordered list of disks per Node (`sizeGib` in GiB for each entry). The first entry is the root OS disk (`/dev/vda`); additional entries attach as `/dev/vdb`, `/dev/vdc`, up to 26 disks. Cannot be combined with `diskGib`. |
 
 Use positive integers. An absent field keeps the preset value. An override
 applies to every Node in that role.
+
+To attach multiple disks to a Node role (for example, an OS disk plus an
+additional data disk for local storage or Ceph), use `disks`:
+
+```yaml
+workerOverrides:
+  vcpus: 4
+  memoryMib: 16384
+  disks:
+    - sizeGib: 100 # /dev/vda (root OS disk)
+    - sizeGib: 200 # /dev/vdb (additional disk)
+```
 
 `workerOverrides` applies only to `ha`. In `sno`, `virtlab` ignores the object
 and prints a warning. In `compact`, the object has no effect because the preset
