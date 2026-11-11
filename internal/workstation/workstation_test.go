@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/y0n1/virtlab/internal/config"
 )
 
 // stubProcessIdentity makes every PID appear to have the given command line
@@ -451,5 +453,65 @@ func TestWorkstation_Teardown_FailurePreservesStateFile(t *testing.T) {
 
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
 		t.Fatalf("state file should not have been removed on failure")
+	}
+}
+
+func TestWorkstation_New_RecordsStateErrOnCorruptFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tmpDir)
+	statePath := filepath.Join(tmpDir, "state.json")
+	if err := os.WriteFile(statePath, []byte("{not-json"), 0o600); err != nil {
+		t.Fatalf("failed to write corrupt state: %v", err)
+	}
+
+	var ws *Workstation
+	captureStdout(func() {
+		ws = New(tmpDir, statePath)
+	})
+	if ws.StateErr == nil {
+		t.Fatal("expected StateErr to be set on corrupt state file")
+	}
+}
+
+func TestWorkstation_Connect_ReturnsStateSaveError(t *testing.T) {
+	origExecCmd := execCmdFn
+	origExecTunnel := execTunnelCmdFn
+	defer func() {
+		execCmdFn = origExecCmd
+		execTunnelCmdFn = origExecTunnel
+	}()
+	execCmdFn = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("true")
+	}
+	execTunnelCmdFn = func(name string, args ...string) *exec.Cmd {
+		return exec.Command("true")
+	}
+
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", tmpDir)
+	// Make parent of statePath a regular file so StateMgr.Save fails on MkdirAll.
+	blocker := filepath.Join(tmpDir, "blocker")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatalf("failed to write blocker file: %v", err)
+	}
+	statePath := filepath.Join(blocker, "state.json")
+
+	ws := New(tmpDir, statePath)
+	ws.SplitDNS = &SplitDNSManager{OS: Info{Type: OSDarwin}}
+	ws.Tunnel = NewTunnelManager(tmpDir)
+
+	cfg := &config.Config{
+		ClusterName: "lab",
+		BaseDomain:  "example.com",
+		HostSSH:     config.HostSSHConfig{User: "root", Host: "127.0.0.1"},
+		Network:     config.NetworkConfig{CIDR: "192.168.100.0/24", GatewayIP: "192.168.100.1"},
+	}
+
+	err := ws.Connect(cfg)
+	if err == nil {
+		t.Fatal("expected Connect to fail when saving state fails")
+	}
+	if !strings.Contains(err.Error(), "save state") {
+		t.Errorf("expected save state error, got: %v", err)
 	}
 }

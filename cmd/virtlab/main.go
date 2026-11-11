@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 
@@ -577,27 +578,53 @@ func runStatus(ctx context.Context, args []string) error {
 	}
 
 	// Workstation State check
-	if ws.StateMgr != nil {
-		if !ws.State.IsEmpty() {
-			fmt.Printf("• Workstation State:      Tracked at %s\n", ws.StateMgr.Path)
-			if ws.State.HasManagedPackages() {
-				var pkgs []string
-				for name, mb := range ws.State.ManagedPackages {
-					if mb.InstalledByVirtlab {
-						pkgs = append(pkgs, fmt.Sprintf("%s (%s)", name, mb.InstallMethod))
-					}
-				}
-				if len(pkgs) > 0 {
-					fmt.Printf("  - Virtlab-managed tools: %s\n", strings.Join(pkgs, ", "))
-				}
-			}
-		} else {
-			fmt.Printf("• Workstation State:      Clean (%s)\n", ws.StateMgr.Path)
-		}
-	}
+	fmt.Print(formatWorkstationState(ws, running, pid))
 
 	fmt.Println("--------------------------------------------------------------------------------")
 	return nil
+}
+
+func formatWorkstationState(ws *workstation.Workstation, tunnelRunning bool, tunnelPID int) string {
+	if ws == nil || ws.StateMgr == nil {
+		return ""
+	}
+
+	if ws.StateErr != nil {
+		return fmt.Sprintf("• Workstation State:      Unreadable at %s (%v)\n", ws.StateMgr.Path, ws.StateErr)
+	}
+
+	_, statErr := os.Stat(ws.StateMgr.Path)
+	if errors.Is(statErr, os.ErrNotExist) {
+		if tunnelRunning {
+			return fmt.Sprintf("• Workstation State:      Untracked (no state file at %s; active tunnel PID %d)\n", ws.StateMgr.Path, tunnelPID)
+		}
+		return fmt.Sprintf("• Workstation State:      Clean (no state file at %s)\n", ws.StateMgr.Path)
+	}
+	if statErr != nil {
+		return fmt.Sprintf("• Workstation State:      Unreadable at %s (%v)\n", ws.StateMgr.Path, statErr)
+	}
+
+	if !ws.State.IsEmpty() {
+		out := fmt.Sprintf("• Workstation State:      Tracked at %s\n", ws.StateMgr.Path)
+		if ws.State.HasManagedPackages() {
+			var pkgs []string
+			for name, mb := range ws.State.ManagedPackages {
+				if mb.InstalledByVirtlab {
+					pkgs = append(pkgs, fmt.Sprintf("%s (%s)", name, mb.InstallMethod))
+				}
+			}
+			sort.Strings(pkgs)
+			if len(pkgs) > 0 {
+				out += fmt.Sprintf("  - Virtlab-managed tools: %s\n", strings.Join(pkgs, ", "))
+			}
+		}
+		return out
+	}
+
+	if tunnelRunning {
+		return fmt.Sprintf("• Workstation State:      Untracked (empty state file at %s; active tunnel PID %d)\n", ws.StateMgr.Path, tunnelPID)
+	}
+	return fmt.Sprintf("• Workstation State:      Clean (%s)\n", ws.StateMgr.Path)
 }
 
 func promptYesNo(question string) bool {
