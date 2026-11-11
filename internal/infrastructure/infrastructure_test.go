@@ -2,6 +2,7 @@ package infrastructure
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optdestroy"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -325,6 +327,38 @@ func TestInfrastructure_StackHasState(t *testing.T) {
 		}
 	})
 
+	t.Run("present with exported deployment and empty workspace config", func(t *testing.T) {
+		origExport := exportStackFn
+		defer func() { exportStackFn = origExport }()
+
+		depBytes, err := json.Marshal(apitype.DeploymentV3{
+			Resources: []apitype.ResourceV3{
+				{Type: "pulumi:pulumi:Stack"},
+				{
+					Type:   "pulumi:providers:libvirt",
+					Inputs: map[string]any{"uri": "qemu+ssh://root@host/system"},
+				},
+				{Type: "libvirt:index/pool:Pool"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("marshal deployment: %v", err)
+		}
+
+		selectStackInlineSourceFn = selectPresent
+		exportStackFn = func(context.Context, auto.Stack) (apitype.UntypedDeployment, error) {
+			return apitype.UntypedDeployment{Version: 3, Deployment: depBytes}, nil
+		}
+		getStackAllConfigFn = func(context.Context, auto.Stack) (auto.ConfigMap, error) {
+			return auto.ConfigMap{}, nil
+		}
+
+		hasState, err := infra.StackHasState(context.Background())
+		if err != nil || !hasState {
+			t.Fatalf("StackHasState() = (%v, %v); want (true, nil)", hasState, err)
+		}
+	})
+
 	t.Run("missing", func(t *testing.T) {
 		selectStackInlineSourceFn = func(context.Context, string, string, pulumi.RunFunc, ...auto.LocalWorkspaceOption) (auto.Stack, error) {
 			return auto.Stack{}, sentinel404
@@ -390,6 +424,62 @@ func TestInfrastructure_Teardown_IdentityMismatchSkipsDestroy(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "original-host") || !strings.Contains(err.Error(), "different-host") {
 		t.Errorf("expected error to name both Hosts, got %v", err)
+	}
+}
+
+func TestInfrastructure_Teardown_IdentityMismatchFromExportedState(t *testing.T) {
+	origSelect, origIs404 := selectStackInlineSourceFn, isSelectStack404ErrorFn
+	origConfig, origExport, origDestroy := getStackAllConfigFn, exportStackFn, destroyStackFn
+	defer func() {
+		selectStackInlineSourceFn = origSelect
+		isSelectStack404ErrorFn = origIs404
+		getStackAllConfigFn = origConfig
+		exportStackFn = origExport
+		destroyStackFn = origDestroy
+	}()
+
+	depBytes, err := json.Marshal(apitype.DeploymentV3{
+		Resources: []apitype.ResourceV3{
+			{
+				Type: "pulumi:pulumi:Stack",
+				Outputs: map[string]any{
+					libvirtURIOutputKey: "qemu+ssh://root@original-host/system",
+					backendOutputKey:    "file:///Users/alice",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal deployment: %v", err)
+	}
+
+	selectStackInlineSourceFn = func(context.Context, string, string, pulumi.RunFunc, ...auto.LocalWorkspaceOption) (auto.Stack, error) {
+		return auto.Stack{}, nil
+	}
+	exportStackFn = func(context.Context, auto.Stack) (apitype.UntypedDeployment, error) {
+		return apitype.UntypedDeployment{Version: 3, Deployment: depBytes}, nil
+	}
+	getStackAllConfigFn = func(context.Context, auto.Stack) (auto.ConfigMap, error) {
+		return auto.ConfigMap{}, nil
+	}
+	destroyed := false
+	destroyStackFn = func(context.Context, auto.Stack, ...optdestroy.Option) error {
+		destroyed = true
+		return nil
+	}
+
+	cfg := &config.Config{
+		ClusterName: "identity-lab",
+		HostSSH:     config.HostSSHConfig{User: "root", Host: "different-host"},
+	}
+	infra := New(cfg, "virbr-test")
+
+	err = infra.Teardown(context.Background())
+	if !errors.Is(err, ErrStackIdentityMismatch) {
+		t.Fatalf("expected ErrStackIdentityMismatch, got %v", err)
+	}
+	if destroyed {
+		t.Fatal("Destroy must not run when exported deployment belongs to a different Host")
 	}
 }
 
