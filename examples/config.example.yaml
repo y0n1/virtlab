@@ -40,6 +40,8 @@ preset: "sno"
 #   ingressLbVip: "192.168.100.7"
 
 # Optional hardware overrides (uncomment to customize sizing)
+# Use either 'diskGib' for a single root disk, or 'disks' for one or more disks
+# (the first disk is the root OS disk /dev/vda; extra disks attach as /dev/vdb, /dev/vdc, ...).
 # controlPlaneOverrides:
 #   vcpus: 8
 #   memoryMib: 16384
@@ -47,4 +49,6 @@ preset: "sno"
 # workerOverrides:
 #   vcpus: 4
 #   memoryMib: 8192
-#   diskGib: 100
+#   disks:
+#     - sizeGib: 100
+#     - sizeGib: 200
