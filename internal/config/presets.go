@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -65,10 +66,10 @@ func (t *NodeTopology) TotalMemoryGiB() float64 {
 	return float64(t.TotalMemoryMiB()) / 1024.0
 }
 
-// TotalDiskGiB returns the total storage in GiB requested across all cluster nodes.
+// TotalDiskGiB returns the total storage in GiB requested across all cluster nodes and all disks.
 func (t *NodeTopology) TotalDiskGiB() int {
-	return (t.ControlPlaneReplicas * t.ControlPlaneSettings.DiskGiB) +
-		(t.WorkerReplicas * t.WorkerSettings.DiskGiB)
+	return (t.ControlPlaneReplicas * t.ControlPlaneSettings.TotalDiskGiB()) +
+		(t.WorkerReplicas * t.WorkerSettings.TotalDiskGiB())
 }
 
 // EffectiveTopology computes the cluster node layout, applying presets and any explicit overrides.
@@ -103,32 +104,48 @@ func (c *Config) EffectiveTopology() (*NodeTopology, error) {
 		return nil, fmt.Errorf("config: unknown preset '%s'; supported presets are 'sno', 'compact', 'ha'", c.Preset)
 	}
 
-	// Apply optional user overrides
-	if c.ControlPlaneOverrides != nil {
-		if c.ControlPlaneOverrides.VCPUs > 0 {
-			topo.ControlPlaneSettings.VCPUs = c.ControlPlaneOverrides.VCPUs
-		}
-		if c.ControlPlaneOverrides.MemoryMiB > 0 {
-			topo.ControlPlaneSettings.MemoryMiB = c.ControlPlaneOverrides.MemoryMiB
-		}
-		if c.ControlPlaneOverrides.DiskGiB > 0 {
-			topo.ControlPlaneSettings.DiskGiB = c.ControlPlaneOverrides.DiskGiB
-		}
-	}
+	topo.ControlPlaneSettings.Disks = topo.ControlPlaneSettings.ResolvedDisks()
+	topo.WorkerSettings.Disks = topo.WorkerSettings.ResolvedDisks()
 
-	if c.WorkerOverrides != nil && topo.WorkerReplicas > 0 {
-		if c.WorkerOverrides.VCPUs > 0 {
-			topo.WorkerSettings.VCPUs = c.WorkerOverrides.VCPUs
-		}
-		if c.WorkerOverrides.MemoryMiB > 0 {
-			topo.WorkerSettings.MemoryMiB = c.WorkerOverrides.MemoryMiB
-		}
-		if c.WorkerOverrides.DiskGiB > 0 {
-			topo.WorkerSettings.DiskGiB = c.WorkerOverrides.DiskGiB
-		}
+	applyNodeOverrides(&topo.ControlPlaneSettings, c.ControlPlaneOverrides)
+	if topo.WorkerReplicas > 0 {
+		applyNodeOverrides(&topo.WorkerSettings, c.WorkerOverrides)
 	}
 
 	return topo, nil
+}
+
+func applyNodeOverrides(dst, src *NodeSettings) {
+	if src == nil {
+		return
+	}
+	if src.VCPUs > 0 {
+		dst.VCPUs = src.VCPUs
+	}
+	if src.MemoryMiB > 0 {
+		dst.MemoryMiB = src.MemoryMiB
+	}
+	if len(src.Disks) > 0 {
+		disks := make([]DiskSettings, len(src.Disks))
+		copy(disks, src.Disks)
+		dst.Disks = disks
+		dst.DiskGiB = disks[0].SizeGiB
+	} else if src.DiskGiB > 0 {
+		dst.DiskGiB = src.DiskGiB
+		dst.Disks = []DiskSettings{{SizeGiB: src.DiskGiB}}
+	}
+}
+
+func formatNodeDisks(s NodeSettings) string {
+	disks := s.ResolvedDisks()
+	if len(disks) <= 1 {
+		return fmt.Sprintf("%-6d GiB", s.TotalDiskGiB())
+	}
+	parts := make([]string, len(disks))
+	for i, d := range disks {
+		parts[i] = strconv.Itoa(d.SizeGiB)
+	}
+	return fmt.Sprintf("%d GiB (%s)", s.TotalDiskGiB(), strings.Join(parts, "+"))
 }
 
 // FormatSummaryTable renders an aligned human-readable summary table for CLI output.
@@ -139,23 +156,23 @@ func (t *NodeTopology) FormatSummaryTable() string {
 	fmt.Fprintf(&b, "%-16s | %-8s | %-12s | %-14s | %-10s\n", "Role", "Count", "vCPUs/node", "RAM/node", "Disk/node")
 	b.WriteString("--------------------------------------------------------------------------------\n")
 
-	fmt.Fprintf(&b, "%-16s | %-8d | %-12d | %-6d MiB (%-2dG) | %-6d GiB\n",
+	fmt.Fprintf(&b, "%-16s | %-8d | %-12d | %-6d MiB (%-2dG) | %s\n",
 		"Control Plane",
 		t.ControlPlaneReplicas,
 		t.ControlPlaneSettings.VCPUs,
 		t.ControlPlaneSettings.MemoryMiB,
 		t.ControlPlaneSettings.MemoryMiB/1024,
-		t.ControlPlaneSettings.DiskGiB,
+		formatNodeDisks(t.ControlPlaneSettings),
 	)
 
 	if t.WorkerReplicas > 0 {
-		fmt.Fprintf(&b, "%-16s | %-8d | %-12d | %-6d MiB (%-2dG) | %-6d GiB\n",
+		fmt.Fprintf(&b, "%-16s | %-8d | %-12d | %-6d MiB (%-2dG) | %s\n",
 			"Worker",
 			t.WorkerReplicas,
 			t.WorkerSettings.VCPUs,
 			t.WorkerSettings.MemoryMiB,
 			t.WorkerSettings.MemoryMiB/1024,
-			t.WorkerSettings.DiskGiB,
+			formatNodeDisks(t.WorkerSettings),
 		)
 	}
 

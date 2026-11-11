@@ -112,7 +112,7 @@ Host that holds the resources. The state stores and backup procedure are in
 |---|---|---|
 | Lab Pool | `internal/infrastructure` (`storagepool.go`) | pool `<cluster>`, type `dir`, path `/home/libvirt/<cluster>/pool`, autostart and build enabled |
 | Lab Network and bridge | `internal/infrastructure` (`network.go`) | network `<cluster>-net`, bridge `virbr-labN`, forward mode `nat`, DNS domain `<baseDomain>` with `localOnly`, gateway `<cidr>.1`, DHCP range `.100`–`.200`, static leases `master-N` → `.10+`, `worker-N` → `.20+` |
-| Guest VMs and disks | `internal/infrastructure` (`guest.go`) | domains `<cluster>-<node>`, volumes `<cluster>-<node>.qcow2`, KVM with `host-passthrough`, serial log `/home/libvirt/<cluster>/logs/<node>-serial.log`, created powered off |
+| Guest VMs and disks | `internal/infrastructure` (`guest.go`) | domains `<cluster>-<node>`, root volumes `<cluster>-<node>.qcow2` (`/dev/vda`) and optional extra volumes `<cluster>-<node>-vdX.qcow2` (`/dev/vdb`+), KVM with `host-passthrough`, serial log `/home/libvirt/<cluster>/logs/<node>-serial.log`, created powered off |
 
 The Lab Network DNS contains:
 

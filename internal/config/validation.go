@@ -185,11 +185,13 @@ func ValidateStaticTier(c *Config, tier ValidationTier) *ValidationResult {
 		}
 	}
 
-	// 7. Preset
+	// 7. Preset & hardware overrides
 	preset := strings.ToLower(strings.TrimSpace(c.Preset))
 	if preset != PresetSNO && preset != PresetCompact && preset != PresetHA {
 		res.AddError("preset '%s' is invalid; choose from 'sno', 'compact', 'ha'", c.Preset)
 	}
+	validateNodeOverrides(res, "controlPlaneOverrides", c.ControlPlaneOverrides)
+	validateNodeOverrides(res, "workerOverrides", c.WorkerOverrides)
 	if preset == PresetSNO && c.WorkerOverrides != nil {
 		res.AddWarning("workerOverrides is ignored: the 'sno' preset has no worker nodes. Use 'controlPlaneOverrides' to customize the node.")
 	}
@@ -411,36 +413,65 @@ func ValidateCapacity(c *Config, host HostCapacity) *ValidationResult {
 		if topo.Preset == PresetSNO {
 			minCP = MinSNOControlPlane
 		}
-		if topo.ControlPlaneSettings.VCPUs < minCP.VCPUs {
-			res.AddWarning("controlPlane vCPUs (%d) is below Red Hat's recommended minimum (%d)",
-				topo.ControlPlaneSettings.VCPUs, minCP.VCPUs)
-		}
-		if topo.ControlPlaneSettings.MemoryMiB < minCP.MemoryMiB {
-			res.AddWarning("controlPlane RAM (%d MiB) is below Red Hat's recommended minimum (%d MiB)",
-				topo.ControlPlaneSettings.MemoryMiB, minCP.MemoryMiB)
-		}
-		if topo.ControlPlaneSettings.DiskGiB < minCP.DiskGiB {
-			res.AddWarning("controlPlane Disk (%d GiB) is below Red Hat's recommended minimum (%d GiB)",
-				topo.ControlPlaneSettings.DiskGiB, minCP.DiskGiB)
-		}
+		warnSubMinimumNode(res, "controlPlane", topo.ControlPlaneSettings, minCP)
 	}
 
 	if c.WorkerOverrides != nil && topo.WorkerReplicas > 0 {
-		if topo.WorkerSettings.VCPUs < MinWorkerNode.VCPUs {
-			res.AddWarning("worker vCPUs (%d) is below Red Hat's recommended minimum (%d)",
-				topo.WorkerSettings.VCPUs, MinWorkerNode.VCPUs)
-		}
-		if topo.WorkerSettings.MemoryMiB < MinWorkerNode.MemoryMiB {
-			res.AddWarning("worker RAM (%d MiB) is below Red Hat's recommended minimum (%d MiB)",
-				topo.WorkerSettings.MemoryMiB, MinWorkerNode.MemoryMiB)
-		}
-		if topo.WorkerSettings.DiskGiB < MinWorkerNode.DiskGiB {
-			res.AddWarning("worker Disk (%d GiB) is below Red Hat's recommended minimum (%d GiB)",
-				topo.WorkerSettings.DiskGiB, MinWorkerNode.DiskGiB)
-		}
+		warnSubMinimumNode(res, "worker", topo.WorkerSettings, MinWorkerNode)
 	}
 
 	return res
+}
+
+func validateNodeOverrides(res *ValidationResult, field string, overrides *NodeSettings) {
+	if overrides == nil {
+		return
+	}
+	if overrides.VCPUs < 0 {
+		res.AddError("%s.vcpus must be a positive integer", field)
+	}
+	if overrides.MemoryMiB < 0 {
+		res.AddError("%s.memoryMib must be a positive integer", field)
+	}
+	if overrides.DiskGiB < 0 {
+		res.AddError("%s.diskGib must be a positive integer", field)
+	}
+	if overrides.DiskGiB > 0 && len(overrides.Disks) > 0 {
+		res.AddError("%s: cannot specify both 'diskGib' and 'disks'", field)
+	}
+	if overrides.Disks != nil && len(overrides.Disks) == 0 {
+		res.AddError("%s.disks must contain at least one disk", field)
+	}
+	if len(overrides.Disks) > MaxVirtioDisks {
+		res.AddError("%s.disks supports at most %d virtio disks (vda-vdz)", field, MaxVirtioDisks)
+	}
+	for i, d := range overrides.Disks {
+		if d.SizeGiB <= 0 {
+			res.AddError("%s.disks[%d].sizeGib must be a positive integer", field, i)
+		}
+	}
+}
+
+func warnSubMinimumNode(res *ValidationResult, role string, actual, min NodeSettings) {
+	if actual.VCPUs < min.VCPUs {
+		res.AddWarning("%s vCPUs (%d) is below Red Hat's recommended minimum (%d)",
+			role, actual.VCPUs, min.VCPUs)
+	}
+	if actual.MemoryMiB < min.MemoryMiB {
+		res.AddWarning("%s RAM (%d MiB) is below Red Hat's recommended minimum (%d MiB)",
+			role, actual.MemoryMiB, min.MemoryMiB)
+	}
+	rootDisk := actual.RootDiskGiB()
+	minDisk := min.RootDiskGiB()
+	if rootDisk < minDisk {
+		if len(actual.ResolvedDisks()) > 1 {
+			res.AddWarning("%s root disk (%d GiB) is below Red Hat's recommended minimum (%d GiB)",
+				role, rootDisk, minDisk)
+		} else {
+			res.AddWarning("%s Disk (%d GiB) is below Red Hat's recommended minimum (%d GiB)",
+				role, rootDisk, minDisk)
+		}
+	}
 }
 
 func isLikelySSHPublicKey(s string) bool {

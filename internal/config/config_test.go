@@ -596,3 +596,164 @@ network:
 		t.Fatal("expected out-of-CIDR VIP to fail after subnet resolution")
 	}
 }
+
+func TestMultipleDisksTopologyAndValidation(t *testing.T) {
+	keyPath := createTempSSHKey(t)
+
+	t.Run("YAML disks list resolves topology and summary", func(t *testing.T) {
+		yamlData := `
+clusterName: "multi-disk"
+baseDomain: "example.com"
+ocpVersion: "4.22.0"
+preset: "ha"
+hostSsh:
+  host: "192.168.1.100"
+  user: "root"
+  publicKeyFile: "` + keyPath + `"
+network:
+  cidr: "192.168.100.0/24"
+controlPlaneOverrides:
+  disks:
+    - sizeGib: 120
+    - sizeGib: 200
+workerOverrides:
+  disks:
+    - sizeGib: 100
+    - sizeGib: 250
+    - sizeGib: 250
+`
+		cfg, err := LoadConfigFromBytes([]byte(yamlData))
+		if err != nil {
+			t.Fatalf("unexpected load error: %v", err)
+		}
+		res := ValidateStatic(cfg)
+		if !res.Valid() {
+			t.Fatalf("expected valid config, got: %s", res.Summary())
+		}
+
+		topo, err := cfg.EffectiveTopology()
+		if err != nil {
+			t.Fatalf("EffectiveTopology failed: %v", err)
+		}
+
+		// 3 control planes * (120 + 200) + 2 workers * (100 + 250 + 250) = 960 + 1200 = 2160 GiB
+		wantTotalDisk := 2160
+		if got := topo.TotalDiskGiB(); got != wantTotalDisk {
+			t.Errorf("TotalDiskGiB = %d, want %d", got, wantTotalDisk)
+		}
+		if got := topo.ControlPlaneSettings.RootDiskGiB(); got != 120 {
+			t.Errorf("ControlPlaneSettings.RootDiskGiB = %d, want 120", got)
+		}
+		if got := topo.WorkerSettings.RootDiskGiB(); got != 100 {
+			t.Errorf("WorkerSettings.RootDiskGiB = %d, want 100", got)
+		}
+
+		summary := topo.FormatSummaryTable()
+		if !strings.Contains(summary, "320 GiB (120+200)") {
+			t.Errorf("summary missing control plane multi-disk breakdown:\n%s", summary)
+		}
+		if !strings.Contains(summary, "600 GiB (100+250+250)") {
+			t.Errorf("summary missing worker multi-disk breakdown:\n%s", summary)
+		}
+		if !strings.Contains(summary, "2160 GiB Disk") {
+			t.Errorf("summary missing total disk allocation:\n%s", summary)
+		}
+	})
+
+	t.Run("ValidateStatic rejects invalid disk overrides", func(t *testing.T) {
+		makeCfg := func() *Config {
+			return &Config{
+				ClusterName: "disk-val",
+				BaseDomain:  "example.com",
+				OCPVersion:  "4.22.0",
+				Preset:      PresetHA,
+				HostSSH: HostSSHConfig{
+					Host:          "192.168.1.100",
+					User:          "root",
+					PublicKeyFile: keyPath,
+				},
+				Network: NetworkConfig{CIDR: "192.168.100.0/24"},
+			}
+		}
+
+		c1 := makeCfg()
+		c1.ControlPlaneOverrides = &NodeSettings{
+			DiskGiB: 120,
+			Disks:   []DiskSettings{{SizeGiB: 200}},
+		}
+		if res := ValidateStatic(c1); res.Valid() {
+			t.Error("expected error when both diskGib and disks are set")
+		}
+
+		c2 := makeCfg()
+		c2.WorkerOverrides = &NodeSettings{
+			Disks: []DiskSettings{},
+		}
+		if res := ValidateStatic(c2); res.Valid() {
+			t.Error("expected error when disks is empty slice")
+		}
+
+		c3 := makeCfg()
+		c3.ControlPlaneOverrides = &NodeSettings{
+			Disks: []DiskSettings{{SizeGiB: 120}, {SizeGiB: 0}},
+		}
+		if res := ValidateStatic(c3); res.Valid() {
+			t.Error("expected error when disk sizeGib <= 0")
+		}
+
+		c4 := makeCfg()
+		tooMany := make([]DiskSettings, MaxVirtioDisks+1)
+		for i := range tooMany {
+			tooMany[i] = DiskSettings{SizeGiB: 10}
+		}
+		c4.WorkerOverrides = &NodeSettings{Disks: tooMany}
+		if res := ValidateStatic(c4); res.Valid() {
+			t.Error("expected error when disks exceeds MaxVirtioDisks")
+		}
+	})
+
+	t.Run("ValidateCapacity accounts for all disks and warns on small root disk", func(t *testing.T) {
+		cfg := &Config{
+			ClusterName: "cap-multi",
+			BaseDomain:  "example.com",
+			OCPVersion:  "4.22.0",
+			Preset:      PresetSNO,
+			HostSSH: HostSSHConfig{
+				Host:          "192.168.1.100",
+				User:          "root",
+				PublicKeyFile: keyPath,
+			},
+			Network: NetworkConfig{CIDR: "192.168.100.0/24"},
+			ControlPlaneOverrides: &NodeSettings{
+				Disks: []DiskSettings{{SizeGiB: 80}, {SizeGiB: 300}}, // total 380 GiB, root 80 < 120 min
+			},
+		}
+
+		// 300 GiB available < 380 GiB total required -> hard error
+		resFail := ValidateCapacity(cfg, HostCapacity{
+			VCPUs:            16,
+			TotalRAMMiB:      32768,
+			AvailableRAMMiB:  32768,
+			TotalDiskGiB:     500,
+			AvailableDiskGiB: 300,
+		})
+		if resFail.Valid() {
+			t.Fatal("expected disk exhaustion error when total multi-disk size exceeds available host disk")
+		}
+
+		// 500 GiB available >= 380 GiB -> valid, but warns about root disk < 120 GiB
+		resWarn := ValidateCapacity(cfg, HostCapacity{
+			VCPUs:            16,
+			TotalRAMMiB:      32768,
+			AvailableRAMMiB:  32768,
+			TotalDiskGiB:     500,
+			AvailableDiskGiB: 500,
+		})
+		if !resWarn.Valid() {
+			t.Fatalf("expected valid capacity, got: %s", resWarn.Summary())
+		}
+		if !resWarn.HasWarnings() || !strings.Contains(resWarn.Warnings[0], "root disk (80 GiB)") {
+			t.Errorf("expected warning about small root disk, got: %v", resWarn.Warnings)
+		}
+	})
+}
