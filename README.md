@@ -130,11 +130,15 @@ hostSsh:
 # controlPlaneOverrides:
 #   vcpus: 32
 #   memoryMib: 131072
-#   diskGib: 500
+#   disks:
+#     - sizeGib: 200
 # workerOverrides:
 #   vcpus: 4
 #   memoryMib: 8192
-#   diskGib: 100
+#   disks:
+#     - sizeGib: 100
+#     - sizeGib: 300
+#     - sizeGib: 300
 
 # Optional: pull secret file. If omitted, virtlab uses VIRTLAB_OCM_TOKEN when it
 # is set, then falls back to the 'ocm' CLI session if logged in.
